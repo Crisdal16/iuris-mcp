@@ -200,6 +200,60 @@ def _clave_articulo(texto: str) -> str:
     return " ".join(t.split())
 
 
+# ---------------------------------------------------------------------------
+# Disposiciones adicionales / transitorias / finales / derogatorias
+# ---------------------------------------------------------------------------
+
+_UNIDADES = ["", "PRIMERA", "SEGUNDA", "TERCERA", "CUARTA", "QUINTA", "SEXTA",
+             "SEPTIMA", "OCTAVA", "NOVENA"]
+_DECENAS = {2: "VIGESIMA", 3: "TRIGESIMA", 4: "CUADRAGESIMA", 5: "QUINCUAGESIMA",
+            6: "SEXAGESIMA", 7: "SEPTUAGESIMA", 8: "OCTOGESIMA", 9: "NONAGESIMA"}
+_TIPOS_DISP = {"A": "ADICIONAL", "T": "TRANSITORIA", "F": "FINAL", "D": "DEROGATORIA"}
+
+
+def ordinal(n: int) -> str:
+    """15 -> 'DECIMOQUINTA' (como rotula el BOE las disposiciones)."""
+    if n < 10:
+        return _UNIDADES[n]
+    if n == 10:
+        return "DECIMA"
+    if n == 11:
+        return "UNDECIMA"
+    if n == 12:
+        return "DUODECIMA"
+    if n < 20:
+        return {18: "DECIMOCTAVA"}.get(n, "DECIMO" + _UNIDADES[n - 10])
+    d, u = divmod(n, 10)
+    return _DECENAS[d] + (_UNIDADES[u] if u else "")
+
+
+def _ordinal_comparable(t: str) -> str:
+    """Iguala variantes: 'vigésima primera' / 'vigesimoprimera' / 'decimooctava'."""
+    t = re.sub(r"[\s.]", "", t)
+    t = re.sub(r"(VIGESIM|TRIGESIM|CUADRAGESIM|QUINCUAGESIM|SEXAGESIM|SEPTUAGESIM|"
+               r"OCTOGESIM|NONAGESIM)O", r"\1A", t)
+    return t.replace("DECIMOOCTAVA", "DECIMOCTAVA")
+
+
+def clave_disposicion(texto: str) -> str | None:
+    """'DA 15ª' / 'Disposición adicional decimoquinta. Depósito...' ->
+    'ADICIONAL DECIMOQUINTA'. None si no es una disposicion."""
+    t = _norm(texto)
+    m = re.match(
+        r"^\s*(?:DISPOSICION(?:ES)?|DISP\.?|D\.?)\s*"
+        r"(ADICIONAL|TRANSITORIA|FINAL|DEROGATORIA|A|T|F|D)\b\.?\s*(.*)$", t)
+    if not m:
+        return None
+    tipo = _TIPOS_DISP.get(m.group(1), m.group(1))
+    resto = m.group(2).split(".", 1)[0].strip()
+    num = re.match(r"^(\d{1,2})\s*[ªºAO]?$", resto)
+    if num:
+        ordn = ordinal(int(num.group(1)))
+    else:
+        ordn = resto
+    return f"{tipo} {_ordinal_comparable(ordn)}".strip()
+
+
 def buscar_articulo(ley: str, articulo: str) -> str:
     """Texto VIGENTE de un articulo de una ley espanola (legislacion consolidada)."""
     norma = resolver_norma(ley)
@@ -221,11 +275,17 @@ def buscar_articulo(ley: str, articulo: str) -> str:
     bloques = idx.get("data", [{}])
     if isinstance(bloques, list) and bloques and isinstance(bloques[0], dict):
         bloques = bloques[0].get("bloque", [])
+    disposicion = clave_disposicion(articulo)
     objetivo = _clave_articulo(articulo)
 
     bloque = None
     for b in bloques:
         tit = b.get("titulo") or ""
+        if disposicion:
+            if clave_disposicion(tit) == disposicion:
+                bloque = b
+                break
+            continue
         if not re.match(r"\s*art", tit, re.IGNORECASE):   # 'Artículo...' o 'Art ...'
             continue
         if _clave_articulo(tit) == objetivo:

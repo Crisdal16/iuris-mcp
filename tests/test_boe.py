@@ -156,3 +156,25 @@ def test_resolver_por_numero_ljca():
 def test_buscar_boe_busca_en_servidor():
     out = boe.buscar_boe("arrendamientos urbanos", limite=5)
     assert "BOE-A-1994-26003" in out
+
+
+@pytest.mark.parametrize("texto,clave", [
+    ("DA 15ª", "ADICIONAL DECIMOQUINTA"),
+    ("Disposición adicional decimoquinta. Depósito para recurrir.", "ADICIONAL DECIMOQUINTA"),
+    (" Disposición adicional decimoctava", "ADICIONAL DECIMOCTAVA"),
+    ("DA 18", "ADICIONAL DECIMOCTAVA"),
+    ("DA 21", "ADICIONAL VIGESIMAPRIMERA"),
+    ("Disposición adicional vigésima primera", "ADICIONAL VIGESIMAPRIMERA"),
+    ("DT única", "TRANSITORIA UNICA"),
+    ("disposición derogatoria única", "DEROGATORIA UNICA"),
+    ("DF 2ª", "FINAL SEGUNDA"),
+    ("Artículo 5", None),
+])
+def test_clave_disposicion(texto, clave):
+    assert boe.clave_disposicion(texto) == clave
+
+
+@pytest.mark.red
+def test_disposicion_adicional_lopj():
+    out = boe.buscar_articulo("LOPJ", "DA 15ª")
+    assert "Depósito para recurrir" in out
