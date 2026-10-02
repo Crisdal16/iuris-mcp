@@ -1,0 +1,37 @@
+[project]
+name = "iuris-mcp"
+version = "0.1.0"
+description = "Servidor MCP local de fuentes juridicas oficiales espanolas (CENDOJ, BOE, Catastro...)"
+requires-python = ">=3.11"
+dependencies = [
+    "mcp>=1.2.0",
+    "httpx>=0.27",
+    "pymupdf>=1.24",
+    "selectolax>=0.3.21",
+    "tenacity>=8.2",
+    "diskcache>=5.6",
+    "playwright>=1.63",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+]
+
+[project.scripts]
+iuris-mcp = "server:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["server"]
+packages = ["common", "sources"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "red: test que golpea una API oficial por red (se salta con -m 'not red')",
+]
