@@ -14,6 +14,8 @@ lugar de inventarlas.
 
 from __future__ import annotations
 
+import re
+
 from common.texto import norm
 
 # provincia (normalizada) -> (nombre del boletin, URL verificada o "")
@@ -117,7 +119,8 @@ def _provincia(provincia: str, municipio: str) -> str | None:
 def _terminos(consulta: str) -> str:
     n = norm(consulta)
     for clave, terminos in _MATERIAS.items():
-        if clave in n:
+        # Inicio de palabra: 'inicio' o 'edificio' no son el ICIO, ni 'prohibicion' el IBI.
+        if re.search(rf"\b{re.escape(clave)}", n):
             return terminos
     return f"ordenanza {consulta}".strip()
 

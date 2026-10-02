@@ -168,15 +168,22 @@ def consultar_api(query: str, limite: int = 20, desde: str = "", hasta: str = ""
     return data if isinstance(data, list) else []
 
 
-def resolver_por_numero(rango: str, numero: str) -> str | None:
-    """('LEY', '29/1998') -> 'BOE-A-1998-16718' (norma estatal)."""
+def ficha_por_numero(rango: str, numero: str) -> dict | None:
+    """('LEY', '29/1998') -> ficha de la API de la norma ESTATAL (identificador,
+    titulo, fecha_disposicion...). None si no hay o falla la red."""
     codigo = RANGOS.get(rango, RANGOS["LEY"])[0]
     try:
         res = consultar_api(f'numero_oficial:"{numero}" and rango@codigo:{codigo} '
                             f"and ambito@codigo:1", limite=5, orden_desc=False)
     except Exception:  # noqa: BLE001
         return None
-    return res[0].get("identificador") if res else None
+    return res[0] if res else None
+
+
+def resolver_por_numero(rango: str, numero: str) -> str | None:
+    """('LEY', '29/1998') -> 'BOE-A-1998-16718' (norma estatal)."""
+    ficha = ficha_por_numero(rango, numero)
+    return ficha.get("identificador") if ficha else None
 
 
 # ---------------------------------------------------------------------------
@@ -193,6 +200,8 @@ def _clave_articulo(texto: str) -> str:
     Se recorta en el primer punto para descartar el epigrafe descriptivo.
     """
     t = _norm(texto)
+    # '1.902' (punto de millar, habitual en escritos) es el 1902, no el 1.
+    t = re.sub(r"(?<![\d.])(\d)\.(\d{3})(?![\d.])", r"\1\2", t)
     t = re.sub(r"\bARTICULOS?\b", " ", t)
     t = re.sub(r"\bART\b\.?", " ", t)
     t = t.split(".", 1)[0]           # quita el epigrafe tras el numero

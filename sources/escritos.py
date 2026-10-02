@@ -13,6 +13,7 @@ abogado; donde hay doctrina discutida se dice y se remite a buscar_sentencias.
 
 from __future__ import annotations
 
+import re
 from concurrent.futures import ThreadPoolExecutor
 
 from common.texto import norm
@@ -382,10 +383,14 @@ def _verificar(arts: list[tuple[str, str]]) -> list[str]:
             r = boe.buscar_articulo(*a)
         except Exception as e:  # noqa: BLE001
             return f"  · {a[0]} art. {a[1]}: no se pudo comprobar ({type(e).__name__})"
+        futura = re.search(r"AVISO: hay una redaccion FUTURA[^\n]*", r)
         cuerpo = r.split("Notas del BOE")[0]
         cab, _, resto = cuerpo.partition("\n\n")
         resto = " ".join(resto.split())
-        return f"  · {cab}\n    {resto[:420]}{'…' if len(resto) > 420 else ''}"
+        linea = f"  · {cab}\n    {resto[:420]}{'…' if len(resto) > 420 else ''}"
+        if futura:
+            linea += f"\n    ⚠ {futura.group(0)}"
+        return linea
 
     with ThreadPoolExecutor(6) as ex:
         return list(ex.map(uno, arts))

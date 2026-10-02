@@ -18,8 +18,11 @@ from common.citas import Cita
 from sources import boe, cendoj, cendoj_live, dgt, normativa_ue, tc, teac, tjue
 
 # Prefijos con los que las fuentes indican que algo NO se ha encontrado / ha fallado.
-_FALLOS = ("No ", "Indica", "TJUE: fallo", "TC: fallo", "CENDOJ:", "Identificador no valido",
-           "Se descargo", "Encontre el art", "El BOE devolvio", "Sin ")
+# Una lectura correcta empieza por la cabecera del documento ('【...', 'CELEX ...',
+# 'SENTENCIA ...'); cualquier 'TJUE: ...' / 'TC: ...' es un error de esa fuente.
+_FALLOS = ("No ", "Indica", "TJUE:", "TC:", "CENDOJ:", "Identificador no valido",
+           "Se descargo", "Encontre el art", "El BOE devolvio", "Sin ", "CELLAR no",
+           "La consulta", "La pagina")
 _DEROGADO = re.compile(r"\((?:Derogad[oa]|Anulad[oa])\)|^\s*Sin contenido\.?\s*$|queda sin contenido",
                        re.IGNORECASE | re.MULTILINE)
 
@@ -154,6 +157,26 @@ async def _verificar_una(c: Cita, en_linea: bool, incluir_texto: bool) -> dict:
         res["detalle"] = ("Formato valido. No se ha consultado el CENDOJ (navegador, 10-30 s por "
                           "cita): pasa comprobar_cendoj=True o usa buscar_por_cita.")
         return res
+    if c.tipo == "articulo" and c.extra.get("autonomica"):
+        res["estado"] = "⚠ NORMA AUTONÓMICA"
+        res["detalle"] = (f"«{c.norma}» parece autonómica (o un decreto-ley/ley foral): no se "
+                          "verifica contra la legislación consolidada ESTATAL para no confundirla "
+                          "con una ley estatal del mismo número. Compruébala en su boletín "
+                          "(leer_boletin) o con buscar_boe.")
+        return res
+    ue = c.tipo == "articulo" and _citas.es_norma_ue(c.norma)
+    avisos: list[str] = []
+    if c.tipo == "articulo" and not ue and c.extra.get("fecha"):
+        cita_rn = await asyncio.to_thread(boe.parsear_rango_numero, c.norma)
+        ficha = await asyncio.to_thread(boe.ficha_por_numero, *cita_rn) if cita_rn else None
+        f = (ficha or {}).get("fecha_disposicion", "")
+        if len(f) == 8 and f"{f[6:8]}/{f[4:6]}" != c.extra["fecha"]:
+            res["estado"] = "⚠ FECHA NO COINCIDE"
+            res["detalle"] = (f"El escrito fecha «{c.norma}» el {c.extra['fecha']}, pero la norma "
+                              f"estatal con ese número ({ficha.get('identificador')}) es de "
+                              f"{f[6:8]}/{f[4:6]}/{f[0:4]}: {ficha.get('titulo', '')[:140]}. "
+                              "Probablemente es otra norma (¿autonómica?).")
+            return res
     try:
         salida = await abrir(c, seccion="fallo" if c.tipo in ("tc", "tjue", "cendoj") else "todo",
                              max_chars=6000)
@@ -161,21 +184,40 @@ async def _verificar_una(c: Cita, en_linea: bool, incluir_texto: bool) -> dict:
         res["estado"] = "⚠ ERROR DE CONSULTA"
         res["detalle"] = f"{type(e).__name__}: {e}"
         return res
-    if _fallo(salida):
-        res["estado"] = "✗ NO ENCONTRADA"
-        res["detalle"] = _extracto(salida, 300)
+    if salida.lstrip().startswith("No reconozco la norma"):
+        res["estado"] = "⚠ NORMA NO RESUELTA"
+        res["detalle"] = (f"No sé a qué norma estatal corresponde «{c.norma}». Compruébala con "
+                          "buscar_boe o pásala como BOE-A.")
         return res
-    if c.tipo == "articulo" and _DEROGADO.search(salida):
+    if _fallo(salida):
+        if ue:
+            res["estado"] = "⚠ NO ESTÁ EN LA VERSIÓN ORIGINAL"
+            res["detalle"] = ("CELLAR da el texto ORIGINAL publicado en el DOUE; el artículo pudo "
+                              "añadirse después. Compruébalo en el consolidado de EUR-Lex. "
+                              + _extracto(salida, 200))
+        else:
+            res["estado"] = "✗ NO ENCONTRADA"
+            res["detalle"] = _extracto(salida, 300)
+        return res
+    if c.tipo == "articulo" and _DEROGADO.search(salida.split("Notas del BOE")[0]):
         res["estado"] = "✗ DEROGADO / SIN CONTENIDO"
+    elif ue:
+        res["estado"] = "⚠ VERSIÓN ORIGINAL (DOUE)"
+        avisos.append("texto tal como se publicó; comprueba modificaciones en el consolidado "
+                      "de EUR-Lex (enlace al final del texto)")
     else:
         res["estado"] = "✓ EXISTE"
+    futura = re.search(r"AVISO: hay una redaccion FUTURA[^\n]*", salida)
+    if futura:
+        res["estado"] = "⚠ REFORMA PENDIENTE"
+        avisos.append(futura.group(0))
     m = re.search(r"vigente desde (\S+)", salida)
     m2 = re.search(r"redaccion vigente dada por (\S+)", salida)
-    if m or m2:
-        res["detalle"] = " · ".join(x for x in (
-            f"vigente desde {m.group(1)}" if m else "",
-            f"redacción dada por {m2.group(1)} (contrasta con la reforma que cite el escrito)" if m2 else "",
-        ) if x)
+    res["detalle"] = " · ".join(x for x in (
+        f"vigente desde {m.group(1)}" if m else "",
+        f"redacción dada por {m2.group(1)} (contrasta con la reforma que cite el escrito)" if m2 else "",
+        *avisos,
+    ) if x)
     if c.tipo == "cendoj" and re.match(r"^[SA]TS\b|^[SA]AP\b|^[SA]TSJ\b", c.ref):
         res["detalle"] = (res["detalle"] + " · " if res["detalle"] else "") + (
             "OJO: se ha interpretado como ROJ; muchos escritos citan el numero de "

@@ -36,7 +36,9 @@ _RE_BOE = re.compile(r"\bBOE-A-\d{4}-\d+\b", re.IGNORECASE)
 _RE_DGT = re.compile(r"\b[VG]\d{4}-\d{2}\b")
 _RE_TEAC = re.compile(r"\b(?:RG|R\.G\.)?\s*(\d{2}/\d{5}/\d{4})\b")
 _RE_ECLI = re.compile(r"\bECLI:(?:ES|EU):[A-Z0-9]+:\d{4}:\d+A?\b", re.IGNORECASE)
-_RE_ASUNTO = re.compile(r"\b(?:asunto\s+)?([CT])\s*[-‑]\s*(\d{1,4})\s*/\s*(\d{2}|\d{4})\b(?!/)", re.IGNORECASE)
+# En texto libre solo el formato real de los asuntos (año de 2 cifras, C/T en
+# mayuscula): 'C-1/2020' o 'c-3/21' suelen ser anexos o expedientes, no asuntos.
+_RE_ASUNTO = re.compile(r"\b(?:[Aa]sunto\s+)?([CT])\s*[-‑]\s*(\d{1,4})\s*/\s*(\d{2})\b(?![/\d])")
 _RE_CELEX_JUR = re.compile(r"^6\d{4}[A-Z]{2}\d{4}$")
 _RE_CELEX_NORMA = re.compile(r"^3\d{4}[A-Z]\d{3,4}$")
 # Resoluciones con ROJ / cita breve: STS 1177/2014, SAP VA 863/2026, STC 31/2010, ATS 12/2020
@@ -65,29 +67,61 @@ _NOMBRES = {
     "LEY GENERAL DE LA SEGURIDAD SOCIAL": "LGSS",
     "REGLAMENTO GENERAL DE PROTECCION DE DATOS": "RGPD",
 }
-_RANGO_NUM = (r"(?:Ley\s+Org[aá]nica|L\.?\s?O\.?|Real\s+Decreto\s+Legislativo|RDLeg\.?|"
-              r"Real\s+Decreto[\s-]+[Ll]ey|RDL|Real\s+Decreto|RD|Ley)\s+\d{1,4}/\d{4}")
+# Rango + numero. El lookbehind evita leer 'RD-ley 8/2020' o 'Decreto-ley 1/2021'
+# como 'Ley 8/2020' (otra norma). Los decretos-leyes autonomicos se reconocen
+# para poder marcarlos, no para resolverlos en el BOE estatal.
+_RANGO_NUM = (r"(?<![\w-])(?:Ley\s+Org[aá]nica|L\.?\s?O\.?|Real\s+Decreto\s+Legislativo|RDLeg\.?|"
+              r"Real\s+Decreto[\s-]+[Ll]ey|RD[\s-]+[Ll]ey|RDL|Real\s+Decreto|RD|"
+              r"Decreto[\s-]+[Ll]ey|Decreto\s+Legislativo|Ley\s+Foral|Ley)\s+\d{1,4}/\d{4}")
 _UE_REF = r"(?:Reglamento|Directiva|Decisi[oó]n)\s*(?:\((?:UE|CE|CEE)\)\s*)?(?:n[ºo°]\s*)?\d{2,4}/\d{1,4}(?:/(?:CEE|CE|UE|JAI))?"
 
-_NUM_ART = r"\d{1,4}(?:\s*(?:bis|ter|quater|quinquies|sexies))?(?:\.\d+)*"
+_NUM_ART = r"\d{1,4}(?:\.\d{3}(?![\d]))?(?:\s*(?:bis|ter|quater|quinquies|sexies))?(?:\.\d+)*"
 _RE_ARTICULO = re.compile(
     r"\b(?:art[ií]culos?|arts?\.|art\.?)\s*"
     r"(?P<nums>" + _NUM_ART + r"(?:\s*(?:,|y|e|o)\s*" + _NUM_ART + r")*)"
-    r"(?=(?P<resto>[^\n;]{0,90}))",   # lookahead: no consume la cita siguiente
+    r"(?=(?P<resto>[^\n;]{0,160}))",   # lookahead: no consume la cita siguiente
     re.IGNORECASE,
 )
 _RE_NORMA_EN_RESTO = re.compile(
     r"(?P<rango>" + _RANGO_NUM + r")|(?P<ue>" + _UE_REF + r")|"
-    r"(?P<nombre>" + "|".join(re.escape(n) for n in sorted(_NOMBRES, key=len, reverse=True)) + r")|"
+    r"\b(?P<nombre>" + "|".join(re.escape(n) for n in sorted(_NOMBRES, key=len, reverse=True)) + r")\b|"
     r"\b(?P<sigla>" + "|".join(_SIGLAS) + r")\b",
     re.IGNORECASE,
 )
+# Lo que puede haber entre el numero del articulo y su norma: apartados, letras,
+# ordinales y 'de la' / 'del'. Si hay otra cosa ('del convenio, conforme al'),
+# la sigla que aparezca despues no es la norma de ese articulo.
+_RE_HUECO = re.compile(
+    r"^(?:[OA]\b)?"                    # el 'º' de '2º' llega como 'O' tras normalizar
+    r"[\s,.;:()ºª°\d\-]*(?:(?<=\d)[OA]\b[\s,.]*)?"
+    r"(?:(?:APARTADOS?|APDOS?\.?|PARRAFOS?|LETRAS?|NUMEROS?|N\.?[O°º]\.?|ORDINAL|INCISO|PUNTO)"
+    r"\s*[\w.ºª°]{1,6}\)?[\s,.]*(?:(?:Y|E)\s+[\w.ºª°]{1,6}\)?[\s,.]*)?)*"
+    r"(?:DE\s+LA|DEL|DE|EN\s+LA|EN\s+EL)?\s*(?:VIGENTE|CITAD[OA]|REFERID[OA])?\s*$"
+)
+_RE_AUTONOMICA = re.compile(
+    r"\b(AUTONOMIC|FORAL|COMUNIDAD\s+AUTONOMA|DE\s+LA\s+COMUNIDAD|PRINCIPADO|"
+    r"GALICIA|CATALUNA|ANDALUCIA|ARAGON|ASTURIAS|BALEARS|BALEARES|CANARIAS|CANTABRIA|"
+    r"CASTILLA|EXTREMADURA|LA\s+RIOJA|MADRID|MURCIA|NAVARRA|PAIS\s+VASCO|EUSKADI|"
+    r"VALENCIANA|CEUTA|MELILLA|DEL\s+PARLAMENTO\s+DE)")
+_MESES = {"ENERO": 1, "FEBRERO": 2, "MARZO": 3, "ABRIL": 4, "MAYO": 5, "JUNIO": 6, "JULIO": 7,
+          "AGOSTO": 8, "SEPTIEMBRE": 9, "SETIEMBRE": 9, "OCTUBRE": 10, "NOVIEMBRE": 11,
+          "DICIEMBRE": 12}
+_RE_FECHA_NORMA = re.compile(r"^\s*,?\s*DE\s+(\d{1,2})\s+DE\s+(" + "|".join(_MESES) + r")\b")
+_RE_SIGUE = re.compile(
+    r"^\s*(?:,|Y|E)\s*(?:EL\s+|LOS\s+|DEL\s+|ART[IÍ]CULOS?\s*|ARTS?\.\s*)?"
+    r"(?P<nums>" + _NUM_ART + r"(?:\s*(?:,|Y|E)\s*" + _NUM_ART + r")*)", re.IGNORECASE)
+_RE_NO_ART = re.compile(r"^\s*(DIAS|MESES|ANOS|SEMANAS|HORAS|EUROS|POR\s+CIENTO|%)\b")
+
+
+def _sin_millar(n: str) -> str:
+    """'1.902' -> '1902' (punto de millar, habitual en los escritos). '394.1' no cambia."""
+    return re.sub(r"(?<![\d.])(\d)\.(\d{3})(?![\d.])", r"\1\2", n)
 
 
 def _numeros(nums: str) -> list[str]:
     out = []
     for n in re.split(r"\s*(?:,|\by\b|\be\b|\bo\b)\s*", nums, flags=re.IGNORECASE):
-        n = " ".join(n.split())
+        n = " ".join(_sin_millar(n).split())
         if not n:
             continue
         base = n.split(".")[0]           # 394.1 -> 394 (el apartado no cambia el articulo)
@@ -101,23 +135,44 @@ def _sin_tildes(t: str) -> str:
     return "".join(norm(ch)[:1] or ch for ch in t)
 
 
-def _norma_de(resto: str) -> str:
+@dataclass
+class _Norma:
+    texto: str = ""        # 'LEC', 'Ley 29/1998', 'Directiva 93/13/CEE'...
+    fin: int = 0           # posicion en `resto` justo despues de la norma
+    autonomica: bool = False
+    fecha: str = ""        # 'DD/MM' si la cita trae ', de 13 de julio'
+
+
+def _norma_de(resto: str) -> _Norma:
     # Se busca sobre el texto sin tildes ('Código' == 'CODIGO') pero se devuelve
-    # el trozo original. Si antes de la norma hay otra referencia a articulo, la
-    # norma es de esa otra cita, no de la nuestra.
+    # el trozo original.
     plano = _sin_tildes(resto)
     m = _RE_NORMA_EN_RESTO.search(plano)
-    if not m:
-        return ""
-    if re.search(r"\bART", plano[: m.start()]):
-        return ""
+    if not m or not _RE_HUECO.match(plano[: m.start()]):
+        return _Norma()
+    n = _Norma(fin=m.end())
     if m.group("rango"):
-        return " ".join(resto[m.start("rango"):m.end("rango")].split())
-    if m.group("ue"):
-        return " ".join(resto[m.start("ue"):m.end("ue")].split())
-    if m.group("nombre"):
-        return _NOMBRES[m.group("nombre")]
-    return m.group("sigla").upper()
+        n.texto = " ".join(resto[m.start("rango"):m.end("rango")].split())
+        tras = plano[m.end():m.end() + 120]
+        f = _RE_FECHA_NORMA.match(tras)
+        if f:
+            n.fecha = f"{int(f.group(1)):02d}/{_MESES[f.group(2)]:02d}"
+        hasta = re.search(r"\bART|[;\n]", tras)
+        cola = tras[: hasta.start()] if hasta else tras
+        if (_RE_AUTONOMICA.search(cola) or
+                re.match(r"(?i)(Decreto[\s-]+ley|Decreto\s+Legislativo|Ley\s+Foral)", n.texto)):
+            n.autonomica = True
+    elif m.group("ue"):
+        n.texto = " ".join(resto[m.start("ue"):m.end("ue")].split())
+    elif m.group("nombre"):
+        nombre = m.group("nombre")
+        # 'constitución de la sociedad' no es la Constitucion: exige mayuscula.
+        if nombre == "CONSTITUCION" and not resto[m.start("nombre")].isupper():
+            return _Norma()
+        n.texto = _NOMBRES[nombre]
+    else:
+        n.texto = m.group("sigla").upper()
+    return n
 
 
 def _contexto(texto: str, ini: int, fin: int) -> str:
@@ -142,10 +197,26 @@ def extraer_citas(texto: str) -> list[Cita]:
         citas.append(c)
 
     for m in _RE_ARTICULO.finditer(texto):
-        norma = _norma_de(m.group("resto"))
-        for n in _numeros(m.group("nums")):
-            add(Cita("articulo", f"{n} {norma}".strip(), m.group(0)[:80].strip(), norma=norma,
-                     articulo=n, contexto=_contexto(texto, m.start(), m.end()), posicion=m.start()))
+        nums, resto = m.group("nums"), m.group("resto")
+        contexto = _contexto(texto, m.start(), m.end())
+        # 'el artículo 7, 15 días después': el 15 no es un articulo.
+        partes = re.split(r"(\s*(?:,|\by\b|\be\b|\bo\b)\s*)", nums)
+        if len(partes) > 1 and _RE_NO_ART.match(_sin_tildes(resto)):
+            nums = "".join(partes[:-2])
+        # Enumeraciones con normas distintas: 'art. 18 de la LOPJ y 19 LEC'.
+        for _ in range(6):
+            norma = _norma_de(resto)
+            for n in _numeros(nums):
+                add(Cita("articulo", f"{n} {norma.texto}".strip(), f"art. {n} {norma.texto}".strip(),
+                         norma=norma.texto, articulo=n, contexto=contexto, posicion=m.start(),
+                         extra={"autonomica": norma.autonomica, "fecha": norma.fecha}))
+            if not norma.texto:
+                break
+            sigue = _RE_SIGUE.match(_sin_tildes(resto[norma.fin:]))
+            if not sigue:
+                break
+            nums = resto[norma.fin + sigue.start("nums"):norma.fin + sigue.end("nums")]
+            resto = resto[norma.fin + sigue.end():]
 
     for m in _RE_ECLI.finditer(texto):
         c = clasificar(m.group(0))
@@ -200,8 +271,10 @@ def clasificar(cita: str) -> Cita | None:
     if m:
         norma = _norma_de(m.group("resto"))
         nums = _numeros(m.group("nums"))
-        if norma and nums:
-            return Cita("articulo", f"{nums[0]} {norma}", c, norma=norma, articulo=nums[0])
+        if norma.texto and nums:
+            return Cita("articulo", f"{nums[0]} {norma.texto}", c, norma=norma.texto,
+                        articulo=nums[0],
+                        extra={"autonomica": norma.autonomica, "fecha": norma.fecha})
 
     obj = normalizar_cita(c)
     if isinstance(obj, Ecli):
@@ -230,8 +303,13 @@ def clasificar(cita: str) -> Cita | None:
     return None
 
 
-_ES_UE = re.compile(r"^(Reglamento|Directiva|Decisi|RGPD|GDPR)", re.IGNORECASE)
-
-
 def es_norma_ue(norma: str) -> bool:
-    return bool(_ES_UE.match(norma or ""))
+    """True solo para actos de la UE: alias conocido (RGPD...), CELEX o
+    'Reglamento/Directiva/Decision' con numero. 'Reglamento Hipotecario' o
+    'Reglamento del Registro Mercantil' son normas espanolas (BOE)."""
+    from sources.deep_links import a_celex
+
+    n = (norma or "").strip()
+    if not n or not re.match(r"(?i)(Reglamento|Directiva|Decisi|RGPD|GDPR|\d)", n):
+        return False
+    return a_celex(n) is not None
