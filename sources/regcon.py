@@ -34,6 +34,7 @@ import pymupdf
 from selectolax.parser import HTMLParser
 
 from common.http import get
+from common.lecturas import recortar
 
 # ---------------------------------------------------------------------------
 # URLs oficiales
@@ -332,8 +333,8 @@ def leer_convenio(codigo: str = "", consulta: str = "", territorio: str = "",
         )
 
     cuerpo = "\n".join(lineas)
-    if len(cuerpo) > 12000:
-        cuerpo = cuerpo[:12000] + "\n[...] (texto truncado; pide un articulo concreto)"
+    cuerpo = recortar(cuerpo, 12000, titulo=f"Convenio {bid}",
+                      consejo="Para ir directo a un precepto: leer_convenio(..., articulo='N')")
     return (
         f"{cab}\n{titulo}\n\n{cuerpo}\n\n"
         f"Fuente: {fuente} · {BOE_DOC.format(id=bid)}"

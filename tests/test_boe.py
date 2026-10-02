@@ -101,3 +101,58 @@ def test_novedades_boe_rango_excesivo():
 
 def test_buscar_boe_vacia():
     assert "Indica" in boe.buscar_boe("   ")
+
+
+# ------------------------- version vigente (regresion) ----------------------
+
+def _v(fecha, norma):
+    import xml.etree.ElementTree as ET
+    return ET.fromstring(f'<version id_norma="{norma}" fecha_vigencia="{fecha}"/>')
+
+
+def test_elegir_version_toma_la_vigente_no_la_original():
+    """Bug real: se devolvia la PRIMERA <version> (redaccion original de 2001)."""
+    vs = [_v("20010108", "BOE-A-2000-323"), _v("20111031", "BOE-A-2011-15937"),
+          _v("20240320", "BOE-A-2023-25758")]
+    actual, futura = boe.elegir_version(vs, hoy="20261002")
+    assert actual.get("id_norma") == "BOE-A-2023-25758"
+    assert futura is None
+
+
+def test_elegir_version_avisa_de_redaccion_futura():
+    vs = [_v("20010108", "A"), _v("20240320", "B"), _v("20270101", "C")]
+    actual, futura = boe.elegir_version(vs, hoy="20261002")
+    assert actual.get("id_norma") == "B"
+    assert futura.get("id_norma") == "C"
+
+
+@pytest.mark.parametrize("texto,esperado", [
+    ("Ley 29/1998", ("LEY", "29/1998")),
+    ("Ley Orgánica 3/2018", ("LO", "3/2018")),
+    ("LO 10/1995", ("LO", "10/1995")),
+    ("Real Decreto Legislativo 8/2015", ("RDLEG", "8/2015")),
+    ("RDLeg 1/2020", ("RDLEG", "1/2020")),
+    ("Real Decreto-ley 8/2020", ("RDL", "8/2020")),
+    ("RD 1065/2007", ("RD", "1065/2007")),
+    ("Ley de Narnia", None),
+])
+def test_parsear_rango_numero(texto, esperado):
+    assert boe.parsear_rango_numero(texto) == esperado
+
+
+@pytest.mark.red
+def test_articulo_455_lec_redaccion_vigente():
+    out = boe.buscar_articulo("LEC", "455")
+    assert "cinco días" not in out.split("Notas del BOE")[0]
+    assert "3.000 euros" in out
+
+
+@pytest.mark.red
+def test_resolver_por_numero_ljca():
+    assert boe.resolver_norma("Ley 29/1998") == "BOE-A-1998-16718"
+
+
+@pytest.mark.red
+def test_buscar_boe_busca_en_servidor():
+    out = boe.buscar_boe("arrendamientos urbanos", limite=5)
+    assert "BOE-A-1994-26003" in out

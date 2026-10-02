@@ -86,10 +86,13 @@ def texto_de_html(nodo) -> str:
     return t.strip()
 
 
-def truncar(cuerpo: str, max_chars: int, total_doc: int, consejo: str) -> str:
+def truncar(cuerpo: str, max_chars: int, total_doc: int, consejo: str, titulo: str = "") -> str:
+    """Recorta al chat; el resto queda disponible via continuar_lectura."""
+    from common import lecturas
+
     if len(cuerpo) <= max_chars:
         return cuerpo
-    return cuerpo[:max_chars] + (
-        f"\n\n[…truncado a {max_chars} de {len(cuerpo)} caracteres de esta parte "
-        f"(documento completo: {total_doc}). {consejo}]"
+    return lecturas.recortar(
+        cuerpo, max_chars, titulo=titulo,
+        consejo=f"Documento completo: {total_doc} caracteres. Para acotar: {consejo}",
     )

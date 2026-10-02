@@ -91,8 +91,9 @@ def test_texto_de_html_limpia():
 
 def test_truncar():
     assert truncar("abc", 10, 3, "x") == "abc"
-    out = truncar("a" * 20, 5, 100, "consejo")
-    assert out.startswith("aaaaa\n\n[…truncado a 5 de 20")
+    out = truncar("a" * 20, 5, 100, "consejo", titulo="Prueba")
+    assert out.startswith("[Prueba — caracteres 0-5 de 20]\n\naaaaa")
+    assert "continuar_lectura(lectura='" in out and "desde=5)" in out
     assert "consejo" in out
 
 

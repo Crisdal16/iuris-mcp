@@ -29,7 +29,7 @@ import re
 
 import httpx
 
-from common.http import get
+from common.http import describir_error, get
 
 BASE = "https://serviciostelematicosext.hacienda.gob.es/TEAC/DYCTEA/"
 BUSCADOR_URL = BASE
@@ -197,7 +197,7 @@ def buscar_doctrina_teac(consulta: str = "", frase: str = "", numero_rg: str = "
     try:
         html = _get("criterios.aspx", params)
     except httpx.HTTPError as e:
-        return (f"No se pudo consultar DYCTEA ({type(e).__name__}).\n"
+        return (f"No se pudo consultar DYCTEA ({describir_error(e)}).\n"
                 f"Abrelo a mano: {BUSCADOR_URL}")
 
     total, filas = _parsear_lista(html)
@@ -292,7 +292,7 @@ def leer_resolucion_teac(numero_rg: str) -> str:
             bloques.append("\n".join(campos) +
                            f"\n\nTexto integro de la resolucion: {texto_url}")
     except httpx.HTTPError as e:
-        return (f"No se pudo leer la resolucion {numero_rg} ({type(e).__name__}).\n"
+        return (f"No se pudo leer la resolucion {numero_rg} ({describir_error(e)}).\n"
                 f"Abrela a mano: {BUSCADOR_URL}")
 
     cabecera = f"TEA (DYCTEA) — Resolucion {rs}/{rn}/{ra}"

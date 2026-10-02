@@ -131,10 +131,15 @@ def _descargar(celex: str) -> str | None:
     hit = _cache.get(clave) if _cache is not None else None
     if hit:
         return hit
-    r = httpx.get(CELLAR.format(celex=celex),
-                  headers={**_HEADERS, "Accept": "application/xhtml+xml", "Accept-Language": "es"},
-                  follow_redirects=True, timeout=_TIMEOUT)
-    if r.status_code != 200 or not r.content:
+    # Los documentos recientes se sirven en XHTML; los antiguos (p.ej. la
+    # Directiva 93/13/CEE) solo en HTML: 404 con xhtml, 200 con text/html.
+    for accept in ("application/xhtml+xml", "text/html"):
+        r = httpx.get(CELLAR.format(celex=celex),
+                      headers={**_HEADERS, "Accept": accept, "Accept-Language": "es"},
+                      follow_redirects=True, timeout=_TIMEOUT)
+        if r.status_code == 200 and r.content:
+            break
+    else:
         return None
     t = HTMLParser(r.text)
     texto = texto_de_html(t.body if t.body else t.root)
@@ -291,5 +296,6 @@ def leer_tjue(referencia: str, tipo: str = "sentencia", seccion: str = "todo",
     if guardados:
         partes.append("Guardado en:\n  " + "\n  ".join(guardados))
     partes.append(truncar(cuerpo, max_chars, len(texto),
-                          "Sube max_chars, usa seccion='fallo' o palabras_clave, o guardar_md=True."))
+                          "Sube max_chars, usa seccion='fallo' o palabras_clave, o guardar_md=True.",
+                          titulo=f"TJUE {celex}"))
     return "\n\n".join(p for p in partes if p)

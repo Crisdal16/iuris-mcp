@@ -39,7 +39,7 @@ import re
 from typing import Any
 
 from common.cendoj_ids import Ecli, Roj, normalizar_cita, roj_a_ecli
-from common.texto import dir_destino, norm as _norm, parrafos, parrafos_con, slug as _slug
+from common.texto import dir_destino, norm as _norm, parrafos, parrafos_con, slug as _slug, truncar
 
 BASE_FORM = "https://www.poderjudicial.es/search/indexAN.jsp"
 SITE = "https://www.poderjudicial.es"
@@ -831,13 +831,9 @@ async def leer_sentencia(
         partes.append(etiqueta_parte)
     if guardados:
         partes.append("Guardado en:\n  " + "\n  ".join(guardados))
-    if len(cuerpo) > max_chars:
-        total_parte = len(cuerpo)
-        cuerpo = cuerpo[:max_chars] + (
-            f"\n\n[…truncado a {max_chars} de {total_parte} caracteres de esta parte "
-            f"(documento completo: {len(texto)}). Sube max_chars, usa seccion='fallo' o "
-            f"palabras_clave para acotar, o guardar_md=True para el fichero completo.]"
-        )
+    cuerpo = truncar(cuerpo, max_chars, len(texto),
+                     "seccion='fallo' o palabras_clave, o guardar_md=True para el fichero completo.",
+                     titulo=meta.get("roj") or meta.get("ecli") or "Sentencia CENDOJ")
     partes.append(cuerpo)
     return "\n\n".join(p for p in partes if p)
 

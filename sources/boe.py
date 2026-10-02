@@ -49,6 +49,17 @@ LEYES: dict[str, str] = {
     "LIRPF": "BOE-A-2006-20764",       # IRPF
     "LIS": "BOE-A-2014-12328",         # Impuesto sobre Sociedades
     "LOTC": "BOE-A-1979-23709",        # Ley Organica del Tribunal Constitucional
+    # Verificados 2026-10-02 con resolver_por_numero (API, rango + ambito estatal):
+    "LOPDGDD": "BOE-A-2018-16673",     # LO 3/2018 Proteccion de Datos
+    "LGSS": "BOE-A-2015-11724",        # RDLeg 8/2015 Seguridad Social
+    "TRLGDCU": "BOE-A-2007-20555",     # RDLeg 1/2007 Consumidores y Usuarios
+    "LGDCU": "BOE-A-2007-20555",
+    "LCSP": "BOE-A-2017-12902",        # Ley 9/2017 Contratos del Sector Publico
+    "LRC": "BOE-A-2011-12628",         # Ley 20/2011 Registro Civil
+    "LOPJM": "BOE-A-1996-1069",        # LO 1/1996 Proteccion Juridica del Menor
+    "LJV": "BOE-A-2015-7391",          # Ley 15/2015 Jurisdiccion Voluntaria
+    "LBRL": "BOE-A-1985-5392",         # Ley 7/1985 Bases de Regimen Local
+    "TRLC": "BOE-A-2020-4859",         # RDLeg 1/2020 Ley Concursal
     "GDPR": "DOUE-L-2016-80807",       # RGPD (referencia UE; via otra ruta)
     "RGPD": "DOUE-L-2016-80807",
 }
@@ -78,8 +89,13 @@ def _norm(t: str) -> str:
     return "".join(c for c in d if not unicodedata.combining(c)).upper().strip()
 
 
-def resolver_norma(ley: str) -> str | None:
-    """'LEC' / 'Codigo Civil' / 'BOE-A-2000-323' -> identificador BOE-A."""
+def resolver_norma(ley: str, red: bool = True) -> str | None:
+    """'LEC' / 'Codigo Civil' / 'BOE-A-2000-323' / 'Ley 29/1998' -> identificador BOE-A.
+
+    Las siglas y nombres se resuelven sin red. Una cita por rango y numero
+    ('Ley 29/1998', 'LO 3/2018', 'RDLeg 8/2015', 'RD 1065/2007') se resuelve con
+    la API (filtro por numero oficial + rango + ambito estatal) si `red`.
+    """
     l = ley.strip()
     if _RE_BOE_ID.match(l):
         return l.upper()
@@ -90,7 +106,77 @@ def resolver_norma(ley: str) -> str | None:
     low = " ".join(_norm(l).lower().split())
     if low in NOMBRES:
         return LEYES[NOMBRES[low]]
+    cita = parsear_rango_numero(l)
+    if cita and red:
+        return resolver_por_numero(*cita)
     return None
+
+
+# Rango -> codigo de la API (verificados contra /legislacion-consolidada).
+RANGOS = {
+    "LO": ("1290", "Ley Organica"),
+    "LEY": ("1300", "Ley"),
+    "RDLEG": ("1310", "Real Decreto Legislativo"),
+    "RDL": ("1320", "Real Decreto-ley"),
+    "RD": ("1340", "Real Decreto"),
+}
+
+_RE_RANGO_NUM = re.compile(
+    r"^\s*(?P<tipo>ley\s+org[aá]nica|l\.?\s*o\.?|real\s+decreto\s+legislativo|rd\s*leg\.?|"
+    r"rdlegislativo|real\s+decreto[\s-]*ley|rd[\s-]*ley|rdl|real\s+decreto|r\.?\s*d\.?|ley)"
+    r"\s*(?P<num>\d{1,4})\s*/\s*(?P<anio>\d{4})\b",
+    re.IGNORECASE,
+)
+
+
+def parsear_rango_numero(texto: str) -> tuple[str, str] | None:
+    """'Ley Orgánica 3/2018' -> ('LO', '3/2018'). Sin red."""
+    m = _RE_RANGO_NUM.match(texto)
+    if not m:
+        return None
+    t = re.sub(r"[\s.\-]", "", _norm(m.group("tipo")))
+    if t in ("LEYORGANICA", "LO"):
+        clave = "LO"
+    elif t in ("REALDECRETOLEGISLATIVO", "RDLEG", "RDLEGISLATIVO"):
+        clave = "RDLEG"
+    elif t in ("REALDECRETOLEY", "RDLEY", "RDL"):
+        clave = "RDL"
+    elif t in ("REALDECRETO", "RD"):
+        clave = "RD"
+    else:
+        clave = "LEY"
+    return clave, f"{int(m.group('num'))}/{m.group('anio')}"
+
+
+def consultar_api(query: str, limite: int = 20, desde: str = "", hasta: str = "",
+                  orden_desc: bool = True) -> list[dict]:
+    """Busqueda en servidor sobre legislacion consolidada (sintaxis query_string
+    de la API oficial: `titulo:(a and b)`, `numero_oficial:"29/1998"`,
+    `rango@codigo:1300`, `ambito@codigo:1`)."""
+    import json
+
+    q: dict = {"query": {"query_string": {"query": query}}}
+    if orden_desc:
+        q["sort"] = [{"fecha_disposicion": "desc"}]
+    params: dict = {"query": json.dumps(q, ensure_ascii=False), "limit": limite}
+    if desde:
+        params["from"] = desde
+    if hasta:
+        params["to"] = hasta
+    j = get_json(f"{API}/legislacion-consolidada", params=params)
+    data = j.get("data", [])
+    return data if isinstance(data, list) else []
+
+
+def resolver_por_numero(rango: str, numero: str) -> str | None:
+    """('LEY', '29/1998') -> 'BOE-A-1998-16718' (norma estatal)."""
+    codigo = RANGOS.get(rango, RANGOS["LEY"])[0]
+    try:
+        res = consultar_api(f'numero_oficial:"{numero}" and rango@codigo:{codigo} '
+                            f"and ambito@codigo:1", limite=5, orden_desc=False)
+    except Exception:  # noqa: BLE001
+        return None
+    return res[0].get("identificador") if res else None
 
 
 # ---------------------------------------------------------------------------
@@ -120,8 +206,10 @@ def buscar_articulo(ley: str, articulo: str) -> str:
     if not norma:
         return (
             f"No reconozco la norma «{ley}». Prueba con una sigla conocida (LEC, CC, "
-            f"CP, ET, LGT, LAU, LPH...), el nombre completo, o el identificador BOE-A "
-            f"(p.ej. BOE-A-2000-323)."
+            f"CP, ET, LGT, LAU, LPH, LOPDGDD, LGSS...), el nombre completo, la cita "
+            f"por rango y numero ('Ley 29/1998', 'LO 3/2018', 'RD 1065/2007') o el "
+            f"identificador BOE-A (p.ej. BOE-A-2000-323). Si no conoces el numero, "
+            f"buscar_boe('<materia>') lo localiza."
         )
 
     # 1) Indice de bloques (JSON) para localizar el articulo por su titulo.
@@ -158,23 +246,56 @@ def buscar_articulo(ley: str, articulo: str) -> str:
     return _formatear_bloque(xml, ley, norma, bloque)
 
 
+def elegir_version(versiones: list, hoy: str | None = None):
+    """De las <version> de un bloque, la VIGENTE hoy (la de mayor fecha_vigencia
+    que no sea futura) y, si existe, la siguiente redaccion aun no vigente.
+
+    El BOE devuelve todas las redacciones historicas en orden cronologico: la
+    primera es la ORIGINAL. Quedarse con la primera da textos derogados (p.ej.
+    art. 455 LEC con 'cinco dias' para apelar o el monitorio en pesetas).
+    """
+    import datetime as _dt
+
+    hoy = hoy or _dt.date.today().strftime("%Y%m%d")
+    con_fecha = [(v.get("fecha_vigencia") or "", i, v) for i, v in enumerate(versiones)]
+    vigentes = [t for t in con_fecha if t[0] and t[0] <= hoy]
+    futuras = sorted((t for t in con_fecha if t[0] > hoy), key=lambda t: (t[0], t[1]))
+    if vigentes:
+        actual = max(vigentes, key=lambda t: (t[0], t[1]))[2]
+    elif con_fecha:
+        actual = con_fecha[-1][2]
+    else:
+        actual = None
+    return actual, (futuras[0][2] if futuras else None)
+
+
 def _formatear_bloque(xml: str, ley: str, norma: str, bloque: dict) -> str:
     try:
         root = ET.fromstring(xml)
     except ET.ParseError as e:
         return f"El BOE devolvio un XML no valido: {e}"
 
-    version = root.find(".//version")
+    version, futura = elegir_version(root.findall(".//version"))
     fecha_vig = version.get("fecha_vigencia") if version is not None else None
     id_norma_vig = version.get("id_norma") if version is not None else None
 
+    # Texto del articulo y, aparte, las notas del BOE ('Se modifica por...',
+    # 'Redaccion anterior: ...'), que sirven para atribuir reformas pero no son
+    # parte del precepto.
     parrafos: list[str] = []
+    notas: list[str] = []
     scope = version if version is not None else root
     for p in scope.iter("p"):
         txt = "".join(p.itertext()).strip()
-        if txt:
-            parrafos.append(txt)
+        if not txt:
+            continue
+        (notas if (p.get("class") or "").startswith("nota") else parrafos).append(txt)
     cuerpo = "\n".join(parrafos) if parrafos else "(sin texto)"
+    if notas:
+        nt = "\n".join(notas)
+        if len(nt) > 1500:
+            nt = nt[:1500].rsplit("\n", 1)[0] + "\n[…mas notas en el enlace]"
+        cuerpo += "\n\nNotas del BOE (reformas):\n" + nt
 
     def _fecha(f: str | None) -> str:
         if f and len(f) == 8:
@@ -189,6 +310,10 @@ def _formatear_bloque(xml: str, ley: str, norma: str, bloque: dict) -> str:
         + (f" · redaccion vigente dada por {id_norma_vig}" if id_norma_vig and id_norma_vig != norma else "")
         + f"\nhttps://www.boe.es/buscar/act.php?id={norma}"
     )
+    if futura is not None:
+        pie = (f"\nAVISO: hay una redaccion FUTURA de este articulo, vigente desde "
+               f"{_fecha(futura.get('fecha_vigencia'))} (dada por {futura.get('id_norma')}). "
+               f"Arriba va la vigente hoy." + pie)
     return f"{cab}\n\n{cuerpo}\n{pie}"
 
 
@@ -284,7 +409,21 @@ def buscar_boe(consulta: str, desde: str = "", hasta: str = "", limite: int = 15
     if h:
         rango["to"] = h
 
-    encontrados: list[dict] = []
+    # 1) Busqueda en servidor (toda la legislacion consolidada, no solo lo reciente).
+    palabras = [re.sub(r"[^\w/]", "", t) for t in consulta.split()]
+    palabras = [p for p in palabras if p]
+    try:
+        encontrados = consultar_api(
+            "titulo:(" + " and ".join(palabras) + ")", limite=limite,
+            desde=d or "", hasta=h or "",
+        ) if palabras else []
+    except Exception:  # noqa: BLE001
+        encontrados = []
+    if encontrados:
+        return _listar_normas(encontrados, consulta, "busqueda en la API oficial, mas recientes primero")
+
+    # 2) Respaldo: paginar el feed y filtrar por titulo en cliente.
+    encontrados = []
     PAG = 50
     MAX_PAGINAS = 12  # hasta 600 normas del feed
     for pagina in range(MAX_PAGINAS):
@@ -319,9 +458,16 @@ def buscar_boe(consulta: str, desde: str = "", hasta: str = "", limite: int = 15
             f"historica completa usa el buscador oficial:\n{url_oficial}"
         )
 
+    return _listar_normas(encontrados, consulta, "feed de legislacion consolidada, mas recientes primero")
+
+
+def _listar_normas(encontrados: list[dict], consulta: str, origen: str) -> str:
+    url_oficial = (
+        "https://www.boe.es/buscar/legislacion.php?campo%5B0%5D=TIT&dato%5B0%5D="
+        + consulta.replace(" ", "+")
+    )
     lineas = [
-        f"{len(encontrados)} norma(s) cuyo titulo contiene «{consulta}» "
-        f"(feed de legislacion consolidada, mas recientes primero):",
+        f"{len(encontrados)} norma(s) cuyo titulo contiene «{consulta}» ({origen}):",
         "",
     ]
     for n in encontrados:

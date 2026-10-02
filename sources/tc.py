@@ -397,5 +397,6 @@ def leer_tc(
         partes.append("Guardado en:\n  " + "\n  ".join(guardados))
     partes.append(truncar(cuerpo, max_chars, len(completo),
                           "Sube max_chars, usa seccion='fallo'/'fundamentos' o palabras_clave, "
-                          "o guardar_md=True para el fichero completo."))
+                          "o guardar_md=True para el fichero completo.",
+                          titulo=doc.get("titulo") or doc.get("ecli") or "Resolucion TC"))
     return "\n\n".join(p for p in partes if p)

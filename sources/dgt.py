@@ -35,6 +35,10 @@ import ssl
 import httpx
 from selectolax.parser import HTMLParser
 
+from common.http import describir_error
+from common.lecturas import recortar
+from common.texto import parrafos
+
 BASE = "https://petete.tributos.hacienda.gob.es/consultas"
 BUSCADOR_URL = BASE + "/"
 
@@ -234,7 +238,7 @@ def buscar_consultas_hacienda(consulta: str = "", numero: str = "",
                         linea += f"\n      Hechos: {f['hechos'][:280]}"
                     partes.append(linea)
     except httpx.HTTPError as e:
-        return (f"No se pudo consultar el buscador de la DGT ({type(e).__name__}).\n"
+        return (f"No se pudo consultar el buscador de la DGT ({describir_error(e)}).\n"
                 f"Abrelo a mano: {BUSCADOR_URL}")
 
     partes.append(f"\nPara el texto integro: leer_consulta_hacienda('Vxxxx-xx').\n"
@@ -257,7 +261,7 @@ def _localizar_doc(c: httpx.Client, numero: str) -> tuple[str, str] | None:
     return None
 
 
-def leer_consulta_hacienda(numero: str) -> str:
+def leer_consulta_hacienda(numero: str, max_chars: int = 30000) -> str:
     """Texto integro de una consulta de la DGT por su numero (p.ej. 'V0282-26')."""
     numero = (numero or "").strip()
     if not numero:
@@ -277,7 +281,7 @@ def leer_consulta_hacienda(numero: str) -> str:
             r = c.get(BASE + "/do/document", params={"doc": doc, "tab": tab})
             r.raise_for_status()
     except httpx.HTTPError as e:
-        return (f"No se pudo leer la consulta {numero} ({type(e).__name__}).\n"
+        return (f"No se pudo leer la consulta {numero} ({describir_error(e)}).\n"
                 f"Abrela a mano: {BUSCADOR_URL}")
 
     doc_html = HTMLParser(r.text)
@@ -288,8 +292,10 @@ def leer_consulta_hacienda(numero: str) -> str:
         if not th or not td:
             continue
         etiqueta = " ".join(th.text().split())
-        valor = "\n".join(l.rstrip() for l in td.text(separator="\n").splitlines()
-                          if l.strip())
+        # El HTML de PETETE parte las lineas con sangria de 12 espacios: se
+        # reagrupan en parrafos.
+        lineas = [l.strip() for l in td.text(separator="\n").splitlines() if l.strip()]
+        valor = "\n".join(parrafos("\n".join(lineas)))
         valor = re.sub(r"\n{3,}", "\n\n", valor).strip()
         if etiqueta and valor:
             campos.append(f"{etiqueta}:\n{valor}" if len(valor) > 80
@@ -298,4 +304,5 @@ def leer_consulta_hacienda(numero: str) -> str:
         return (f"La consulta {numero} no devolvio contenido legible.\n"
                 f"Abrela a mano: {BUSCADOR_URL}")
     cabecera = "Direccion General de Tributos — Consulta " + numero
-    return cabecera + "\n\n" + "\n\n".join(campos)
+    return recortar(cabecera + "\n\n" + "\n\n".join(campos), max_chars,
+                    titulo=f"Consulta DGT {numero}")

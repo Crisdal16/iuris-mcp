@@ -47,3 +47,18 @@ def get_json(url: str, *, params: dict | None = None,
 def get_xml(url: str, *, params: dict | None = None,
             timeout: float = DEFAULT_TIMEOUT) -> str:
     return get(url, accept="application/xml", params=params, timeout=timeout).text
+
+
+def describir_error(e: Exception) -> str:
+    """Error de red legible: distingue 'el servidor oficial esta caido' (5xx)
+    de un fallo nuestro, para que Claude no reintente en bucle."""
+    if isinstance(e, httpx.HTTPStatusError):
+        code = e.response.status_code
+        if code >= 500:
+            return f"el servidor oficial no responde (HTTP {code}); es una incidencia suya, prueba mas tarde"
+        return f"HTTP {code}"
+    if isinstance(e, (httpx.TimeoutException,)):
+        return "tiempo de espera agotado; el servidor oficial va lento o esta caido"
+    if isinstance(e, httpx.TransportError):
+        return f"sin conexion con el servidor oficial ({type(e).__name__})"
+    return f"{type(e).__name__}: {e}"

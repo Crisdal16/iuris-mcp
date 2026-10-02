@@ -25,6 +25,7 @@ import pymupdf
 from selectolax.parser import HTMLParser
 
 from common.http import get
+from common.lecturas import recortar
 
 # ---------------------------------------------------------------------------
 # Boletines conocidos: construccion de la URL del documento
@@ -187,6 +188,6 @@ def leer_boletin(
         return f"{cab}\n\nARTICULO {articulo}\n\n{bloque}\n\nFuente: {formato} · {url}"
 
     cuerpo = "\n".join(lineas)
-    if len(cuerpo) > max_chars:
-        cuerpo = cuerpo[:max_chars] + "\n[...] (truncado; pide un articulo concreto)"
+    cuerpo = recortar(cuerpo, max_chars, titulo=cab,
+                      consejo="Para ir directo a un precepto: leer_boletin(..., articulo='N')")
     return f"{cab}\n\n{cuerpo}\n\nFuente: {formato} · {url}"
