@@ -1,0 +1,49 @@
+<evaluation>
+  <!--
+    Evaluacion de iuris-mcp (formato del skill mcp-builder). Cada pregunta exige
+    elegir bien la herramienta y leer la fuente oficial; las respuestas se
+    verificaron con las propias tools el 2026-10-02 y son estables (texto
+    vigente consolidado o resoluciones ya dictadas).
+    La 1, 2 y 3 detectan el bug de version original vs. vigente del BOE.
+  -->
+  <qa_pair>
+    <question>En un proceso civil espanol, segun la redaccion vigente de la Ley de Enjuiciamiento Civil, ¿cuantos dias tiene el apelante para interponer el recurso de apelacion y cuantos la parte apelada para presentar su escrito de oposicion? Responde en formato X/Y.</question>
+    <answer>20/10</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Segun la redaccion vigente del articulo 250.2 de la LEC, ¿cual es la cuantia maxima, en euros y sin puntos, de las demandas que se tramitan por juicio verbal por razon de la cuantia?</question>
+    <answer>15000</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Segun la Ley Organica del Poder Judicial vigente, ¿cuantos euros hay que consignar como deposito para interponer un recurso de apelacion? Responde solo con el numero.</question>
+    <answer>50</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>La STC 31/2010 resolvio un recurso de inconstitucionalidad contra la reforma de un Estatuto de Autonomia. ¿Cual es el numero de la Ley Organica impugnada? Responde en formato N/AAAA.</question>
+    <answer>6/2006</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>¿En que fecha dicto el Tribunal de Justicia de la UE la sentencia del asunto C-311/18 (Schrems II)? Responde en formato AAAA-MM-DD.</question>
+    <answer>2020-07-16</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>¿Que derecho regula el articulo 17 del Reglamento General de Proteccion de Datos, segun su epigrafe en espanol? Responde con las palabras exactas del epigrafe antes del parentesis.</question>
+    <answer>Derecho de supresión</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>¿Que articulo de la Directiva 93/13/CEE establece que las clausulas no negociadas individualmente se consideraran abusivas si causan un desequilibrio importante en detrimento del consumidor? Responde solo con el numero.</question>
+    <answer>3</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>¿Cual es el identificador BOE (BOE-A-...) de la Ley de Arrendamientos Urbanos vigente, la Ley 29/1994?</question>
+    <answer>BOE-A-1994-26003</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>La consulta vinculante de la DGT V0282-26 trata sobre servicios educativos en linea. ¿En que fecha salio? Responde en formato DD/MM/AAAA.</question>
+    <answer>09/02/2026</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Un plazo de 20 dias habiles comienza a computarse el 01/12/2025 en la Region de Murcia, sin fiestas locales. ¿Que dia vence? Responde en formato DD/MM/AAAA.</question>
+    <answer>30/12/2025</answer>
+  </qa_pair>
+</evaluation>

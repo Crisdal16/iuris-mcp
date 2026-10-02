@@ -63,7 +63,7 @@ python3 -m venv .venv
 Python ≥3.11 · `mcp>=1.2.0`, `httpx`, `pymupdf`, `selectolax`, `tenacity`, `diskcache`,
 `playwright` (+ `playwright install chromium`).
 
-## Herramientas (27) — tres regímenes
+## Herramientas — tres regímenes (lista histórica; la vigente en README)
 
 **Jurisprudencia en vivo (bajo demanda):**
 
@@ -114,7 +114,10 @@ haces tú en tu navegador, sin evasión de anti-bot):**
 - UE (EUR-Lex, normativa): `buscar_norma_ue`
 - Diagnóstico: `estado`
 
-Pendiente: ordenanzas municipales (BOP fragmentado por municipio).
+**Añadido en v0.2.0 (2026-10-02):** `continuar_lectura`, `buscar_por_cita`,
+`verificar_escrito`, `guia_escrito`, `buscar_ordenanzas` (35 tools en total; la
+lista al día la da `estado()` y el README). Corregido: `buscar_articulo` devolvía
+la redacción ORIGINAL de cada artículo en vez de la vigente.
 
 ## Notas de diseño
 
@@ -142,8 +145,20 @@ hacienda...). Es el MCP de **DerechoVirtual/mcp-cendoj-sentencias** (código no
 público; identificado el 2026-09-17 por su ficha en glama.ai). Desde el 2026-09-17
 iuris cubre lo mismo en CENDOJ (búsqueda + lectura + párrafos por tema) y añade
 secciones, descarga a expediente y caché local. Desde el 2026-09-17 iuris también
-trae **TC y TJUE a texto** (`buscar_tc`/`leer_tc`, `buscar_tjue`/`leer_tjue`), así
-que ya no hay nada que Jurisprudenciator haga y iuris no: se puede retirar.
+trae **TC y TJUE a texto** (`buscar_tc`/`leer_tc`, `buscar_tjue`/`leer_tjue`).
+
+**Revisión 2026-10-02 (v0.2.0):** la afirmación anterior de que "ya no hay nada que
+Jurisprudenciator haga y iuris no" no era exacta. Le faltaban a iuris
+`continuar_lectura`, `buscar_por_cita`, `verificar_escrito`, `guia_escrito` y
+`buscar_ordenanzas`, y desde la v0.2.0 los tiene todos. Diferencias que quedan:
+- Jurisprudenciator busca ordenanzas automáticamente en 13 catálogos municipales y
+  41 BOP; iuris da el BOP verificado y lee el anuncio con `leer_boletin` (humano en
+  el bucle).
+- Jurisprudenciator tiene más guías de escritos (habeas corpus, orden de protección,
+  burofax, hoja de encargo...); iuris tiene 11, con la base legal comprobada en vivo
+  en el BOE.
+- El plan gratuito de Jurisprudenciator tiene cupo semanal (agotado el 2026-10-02);
+  iuris no tiene límites propios.
 
 ## Repos de referencia revisados (2026-09-17)
 
