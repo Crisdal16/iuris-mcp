@@ -22,6 +22,20 @@ DEFAULT_TIMEOUT = 30.0
 
 _TRANSIENT = (httpx.TransportError, httpx.ReadTimeout, httpx.ConnectTimeout)
 
+# Un unico cliente para todo el proceso: reutiliza conexiones TLS (keep-alive) en
+# vez de abrir una por peticion. buscar_articulo hace 2 peticiones seguidas al BOE
+# y verificar_escrito decenas. httpx.Client es seguro entre hilos.
+_CLIENTE: httpx.Client | None = None
+
+
+def _cliente() -> httpx.Client:
+    global _CLIENTE
+    if _CLIENTE is None:
+        _CLIENTE = httpx.Client(follow_redirects=True, timeout=DEFAULT_TIMEOUT,
+                                limits=httpx.Limits(max_connections=20,
+                                                    max_keepalive_connections=10))
+    return _CLIENTE
+
 
 @retry(
     retry=retry_if_exception_type(_TRANSIENT),
@@ -33,8 +47,7 @@ def get(url: str, *, accept: str = "application/json", params: dict | None = Non
         timeout: float = DEFAULT_TIMEOUT) -> httpx.Response:
     """GET con reintentos ante fallos de red. Lanza para 4xx/5xx via raise_for_status."""
     headers = {"User-Agent": USER_AGENT, "Accept": accept}
-    resp = httpx.get(url, headers=headers, params=params, timeout=timeout,
-                     follow_redirects=True)
+    resp = _cliente().get(url, headers=headers, params=params, timeout=timeout)
     resp.raise_for_status()
     return resp
 

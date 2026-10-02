@@ -57,10 +57,42 @@ def slug(s: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "_", s).strip("_") or "documento"
 
 
+def ruta_permitida(ruta: str) -> str:
+    """Valida una ruta que llega del modelo (para guardar o para leer un escrito).
+
+    Siempre: ruta absoluta normalizada, sin bytes nulos ni rutas de red (UNC).
+    Si existe la variable de entorno IURIS_RAIZ (una o varias carpetas separadas
+    por os.pathsep), la ruta debe quedar DENTRO de alguna de ellas (resolviendo
+    enlaces simbolicos), de modo que el servidor no lea ni escriba fuera de las
+    carpetas de expedientes. Lanza ValueError si no se cumple.
+    """
+    if "\x00" in ruta:
+        raise ValueError("ruta no valida")
+    bruta = ruta.strip().strip('"')
+    real = os.path.realpath(os.path.abspath(os.path.expanduser(bruta)))
+    if any(p.startswith(("\\\\", "//")) for p in (bruta, real)):
+        raise ValueError("no se admiten rutas de red (UNC)")
+    raices = [r for r in os.environ.get("IURIS_RAIZ", "").split(os.pathsep) if r.strip()]
+    if raices:
+        ok = False
+        for r in raices:
+            rr = os.path.realpath(os.path.abspath(os.path.expanduser(r.strip())))
+            try:
+                if os.path.commonpath([os.path.normcase(rr), os.path.normcase(real)]) == os.path.normcase(rr):
+                    ok = True
+                    break
+            except ValueError:  # distinta unidad en Windows
+                continue
+        if not ok:
+            raise ValueError(f"la ruta queda fuera de las carpetas permitidas (IURIS_RAIZ): {real}")
+    return real
+
+
 def dir_destino(ruta: str, por_defecto: str) -> str:
-    """Carpeta donde guardar: `ruta` (carpeta o fichero) o `por_defecto`."""
+    """Carpeta donde guardar: `ruta` (carpeta o fichero) o `por_defecto`.
+    La ruta se valida con ruta_permitida (lanza ValueError)."""
     if ruta:
-        ruta = os.path.expanduser(ruta)
+        ruta = ruta_permitida(ruta)
         if os.path.isdir(ruta) or not os.path.splitext(ruta)[1]:
             os.makedirs(ruta, exist_ok=True)
             return ruta

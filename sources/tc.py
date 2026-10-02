@@ -361,12 +361,15 @@ def leer_tc(
 
     guardados = []
     if guardar_md:
-        d = dir_destino(ruta, os.path.join(os.path.dirname(os.path.dirname(__file__)), "descargas"))
-        etiqueta = slug(doc.get("ecli") or doc["titulo"][:40])
-        p = os.path.join(d, f"{etiqueta}.md")
-        with open(p, "w", encoding="utf-8") as f:
-            f.write(_a_markdown(doc))
-        guardados.append(p)
+        try:
+            d = dir_destino(ruta, os.path.join(os.path.dirname(os.path.dirname(__file__)), "descargas"))
+            etiqueta = slug(doc.get("ecli") or doc["titulo"][:40])
+            p = os.path.join(d, f"{etiqueta}.md")
+            with open(p, "w", encoding="utf-8") as f:
+                f.write(_a_markdown(doc))
+            guardados.append(p)
+        except (ValueError, OSError) as e:
+            guardados.append(f"NO GUARDADO: {e}")
 
     etiqueta_parte = ""
     if palabras_clave.strip():

@@ -269,11 +269,14 @@ def leer_tjue(referencia: str, tipo: str = "sentencia", seccion: str = "todo",
 
     guardados = []
     if guardar_md:
-        d = dir_destino(ruta, os.path.join(os.path.dirname(os.path.dirname(__file__)), "descargas"))
-        p = os.path.join(d, f"{slug(celex)}.md")
-        with open(p, "w", encoding="utf-8") as f:
-            f.write(f"# {celex}\n\n- **Fuente**: {EURLEX.format(celex=celex)}\n\n---\n\n{texto}")
-        guardados.append(p)
+        try:
+            d = dir_destino(ruta, os.path.join(os.path.dirname(os.path.dirname(__file__)), "descargas"))
+            p = os.path.join(d, f"{slug(celex)}.md")
+            with open(p, "w", encoding="utf-8") as f:
+                f.write(f"# {celex}\n\n- **Fuente**: {EURLEX.format(celex=celex)}\n\n---\n\n{texto}")
+            guardados.append(p)
+        except (ValueError, OSError) as e:
+            guardados.append(f"NO GUARDADO: {e}")
 
     etiqueta_parte = ""
     if palabras_clave.strip():

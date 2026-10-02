@@ -915,7 +915,10 @@ def _guardar(meta: dict, url: str, texto: str, data: bytes | None,
     if not (pdf or md):
         return []
     etiqueta = _slug(meta.get("roj") or meta.get("ecli") or _clave_doc(url))
-    destino = _dir_destino(ruta)
+    try:
+        destino = _dir_destino(ruta)
+    except (ValueError, OSError) as e:
+        return [f"NO GUARDADO: {e}"]
     out: list[str] = []
     if pdf and data:
         p = os.path.join(destino, f"{etiqueta}.pdf")

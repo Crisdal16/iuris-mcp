@@ -106,8 +106,12 @@ _EXT_TEXTO = (".txt", ".md")
 
 
 def _leer_fichero(ruta: str) -> str:
-    ruta = os.path.expanduser(ruta.strip().strip('"'))
+    from common.texto import ruta_permitida
+
+    ruta = ruta_permitida(ruta)
     ext = os.path.splitext(ruta)[1].lower()
+    if os.path.getsize(ruta) > 50 * 1024 * 1024:
+        raise ValueError("fichero demasiado grande (mas de 50 MB)")
     if ext in _EXT_TEXTO:
         with open(ruta, encoding="utf-8", errors="replace") as f:
             return f.read()

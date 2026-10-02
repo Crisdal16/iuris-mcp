@@ -1,17 +1,27 @@
-"""iuris-mcp — servidor MCP local de fuentes juridicas oficiales espanolas.
+"""iuris-mcp — servidor MCP local de fuentes juridicas oficiales espanolas y de la UE.
 
-Arranque (stdio):  .venv/bin/python server.py
+Arranque (stdio):  <venv>/python server.py
 
-Filosofia CENDOJ: 'humano en el bucle'. El servidor prepara la busqueda y
-verifica las citas; el acceso al CENDOJ lo hace el usuario en su navegador
-(uso particular, sin evasion de anti-bot ni base de datos derivada). Ver
-sources/cendoj.py.
+Tres regimenes de acceso (ver README):
+  * API/servicio oficial abierto (BOE, Catastro, BORME, DGT, TEAC, TC, CELLAR):
+    automatico, sin captcha.
+  * CENDOJ: navegador real para BUSCAR, documento a documento, uso profesional
+    propio (no masivo); la LECTURA va por descarga directa.
+  * Humano en el bucle (REGCON, Registro Mercantil, BOP de ordenanzas): el
+    servidor prepara la busqueda oficial y el usuario la abre.
+
+Todas las tools son de lectura. Las unicas que escriben en disco son las de
+guardar/descargar una resolucion, y solo en la carpeta indicada.
 """
 
 from __future__ import annotations
 
-from mcp.server import MCPServer
+import logging
 
+from mcp.server import MCPServer
+from mcp.types import ToolAnnotations
+
+from common import lecturas
 from sources import (
     boe,
     boletines,
@@ -21,56 +31,168 @@ from sources import (
     cendoj_live,
     deep_links,
     dgt,
+    escritos,
     mercantil,
+    normativa_ue,
+    ordenanzas,
     regcon,
     tc,
     teac,
     tjue,
+    verificacion,
 )
+from common.citas import es_norma_ue
+
+# Una linea de log por peticion HTTP solo ensucia el log del MCP (va a stderr).
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
+INSTRUCCIONES = """\
+iuris da acceso a fuentes OFICIALES del Derecho espanol y de la UE. Usalo siempre que haga \
+falta una norma, una resolucion o una publicacion oficial; no cites de memoria lo que puedas \
+comprobar aqui.
+
+Como elegir:
+• Texto VIGENTE de un articulo (leyes espanolas, incluidas disposiciones adicionales/\
+transitorias, y reglamentos o directivas UE) → buscar_articulo. Acepta siglas (LEC, CC, ET, \
+LGT, LOPDGDD…), 'Ley 29/1998', 'LO 3/2018', BOE-A-… y 'RGPD' / 'Directiva 93/13/CEE'.
+• Localizar normas por materia → buscar_boe. Que salio en el BOE un dia → sumario_boe; \
+vigilar un periodo → novedades_boe. BORME de un dia → sumario_borme.
+• Cualquier cita concreta (STC 31/2010, STS 1177/2014, ECLI, C-311/18, art. 1902 CC, \
+V0282-26, RG 00/06291/2024, BOE-A-…) → buscar_por_cita, que la abre en su fuente.
+• Jurisprudencia por tema: CENDOJ (TS, AN, TSJ, AP, juzgados) → buscar_sentencias + \
+leer_sentencia; Tribunal Constitucional → buscar_tc + leer_tc; TJUE/Tribunal General → \
+buscar_tjue + leer_tjue. Usa seccion='fallo' o palabras_clave para no leer textos enteros.
+• Doctrina tributaria: DGT → buscar_consultas_hacienda / leer_consulta_hacienda; TEAC/TEAR → \
+buscar_doctrina_teac / leer_resolucion_teac.
+• Convenios colectivos → buscar_convenio, leer_convenio, vigencia_convenio; los publicados \
+en boletines autonomicos o provinciales → leer_boletin.
+• Ordenanzas municipales → buscar_ordenanzas (+ leer_boletin con la URL del anuncio).
+• Catastro → consultar_catastro / callejero_catastro. Empresas → buscar_empresa_mercantil.
+• Plazos → calendario_laboral y computo_plazo.
+• Redactar un escrito → guia_escrito PRIMERO; revisar las citas de un borrador → \
+verificar_escrito.
+• Si una respuesta acaba en 'continuar_lectura(lectura=…, desde=…)', pide el siguiente tramo \
+solo si lo necesitas.
+
+Si una fuente responde que el servidor oficial esta caido (HTTP 5xx), dilo y no reintentes en \
+bucle. CENDOJ: uso profesional propio, documento a documento; no hagas barridos masivos.
+"""
 
 mcp = MCPServer(
     name="iuris-mcp",
-    description="Fuentes juridicas oficiales espanolas (CENDOJ humano-en-el-bucle, BOE, Catastro).",
+    title="iuris — fuentes juridicas oficiales",
+    description="BOE, CENDOJ, Tribunal Constitucional, TJUE, normativa UE, DGT, TEAC, "
+                "Catastro, BORME, convenios, boletines y ordenanzas.",
+    instructions=INSTRUCCIONES,
+    version="0.2.0",
 )
 
 
-@mcp.tool()
-def estado() -> str:
-    """Diagnostico del servidor y de las fuentes activas."""
-    return (
-        "iuris-mcp — servidor MCP local de fuentes juridicas oficiales espanolas.\n\n"
-        "AUTOMATICO (API/servicio oficial, sin captcha):\n"
-        "  • BOE/legislacion: buscar_articulo, buscar_boe, novedades_boe, sumario_boe, leer_boe\n"
-        "  • Catastro (OVC): consultar_catastro, callejero_catastro (sin titular ni valor; "
-        "no cubre Pais Vasco/Navarra)\n"
-        "  • Mercantil (BORME): sumario_borme\n"
-        "  • Fiscal DGT: buscar_consultas_hacienda, leer_consulta_hacienda\n"
-        "  • Fiscal TEAC/TEAR: buscar_doctrina_teac, leer_resolucion_teac\n"
-        "  • CENDOJ (jurisprudencia): buscar_sentencias (navegador real), "
-        "leer_sentencia (texto integro / seccion 'fallo' / parrafos por palabras "
-        "clave), descargar_sentencia (PDF o MD al expediente). Uso profesional "
-        "propio, documento a documento, no masivo.\n"
-        "  • Tribunal Constitucional: buscar_tc, leer_tc (buscador HJ oficial, texto "
-        "seccionado: fallo, fundamentos, votos, ficha)\n"
-        "  • TJUE / Tribunal General: buscar_tjue, leer_tjue (CELLAR, API oficial de "
-        "la UE; sentencias, conclusiones y autos en espanol)\n"
-        "  • Convenios: leer_convenio (texto desde su publicacion en BOE)\n"
-        "  • Boletines autonomicos/provinciales: leer_boletin (convenios y normas "
-        "que NO estan en el BOE; por URL o por boletin+ano+numero. Conocidos: BORM)\n"
-        "  • Calendario laboral: calendario_laboral (Resolucion anual del BOE; "
-        "nacionales + CCAA, NO las fiestas locales) y computo_plazo (vencimientos "
-        "en dias habiles o naturales)\n\n"
-        "HUMANO EN EL BUCLE (el servidor prepara la busqueda/enlace oficial; el acceso "
-        "lo hace el usuario en su navegador; sin evasion de anti-bot):\n"
-        "  • CENDOJ (respaldo offline): cendoj_construir_busqueda, cendoj_analizar_cita\n"
-        "  • Convenios REGCON: buscar_convenio, vigencia_convenio\n"
-        "  • Empresa (RM): buscar_empresa_mercantil\n"
-        "  • UE (EUR-Lex, normativa): buscar_norma_ue\n\n"
-        "Pendiente: ordenanzas municipales (BOP fragmentado por municipio)."
+def herramienta(titulo: str, *, red: bool = True, escribe: bool = False):
+    """@mcp.tool con anotaciones y SIN salida estructurada: las tools devuelven
+    texto, y el envoltorio {'result': ...} duplicaria cada respuesta en el contexto."""
+    return mcp.tool(
+        title=titulo,
+        structured_output=False,
+        annotations=ToolAnnotations(
+            title=titulo,
+            readOnlyHint=not escribe,
+            destructiveHint=False,
+            idempotentHint=True,
+            openWorldHint=red,
+        ),
     )
 
 
-@mcp.tool()
+# --------------------------------------------------------------------------
+# Diagnostico y utilidades
+# --------------------------------------------------------------------------
+
+@herramienta("Estado del servidor", red=False)
+def estado() -> str:
+    """Diagnostico: version, fuentes y lista de herramientas disponibles."""
+    tools = sorted(mcp._tool_manager.list_tools(), key=lambda t: t.name)
+    lineas = [f"iuris-mcp {mcp.version} — {len(tools)} herramientas", ""]
+    for t in tools:
+        desc = " ".join((t.description or "").split())
+        frase = desc.split(". ", 1)[0].rstrip(".")
+        if len(frase) > 120:
+            frase = frase[:117].rsplit(" ", 1)[0] + "…"
+        lineas.append(f"  • {t.name}: {frase}")
+    lineas += ["", "Fuentes: BOE (API datos abiertos), CENDOJ (navegador para buscar, descarga "
+               "directa para leer), TC (hj.tribunalconstitucional.es), TJUE y normativa UE "
+               "(CELLAR), DGT (PETETE), TEAC (DYCTEA), Catastro (OVC), BORME, REGCON, "
+               "boletines autonomicos/provinciales."]
+    return "\n".join(lineas)
+
+
+@herramienta("Continuar lectura", red=False)
+def continuar_lectura(lectura: str, desde: int = 0, max_chars: int = 30000) -> str:
+    """Siguiente tramo de un texto largo que otra herramienta recorto.
+
+    Cuando una respuesta acaba en 'continuar_lectura(lectura='abc123', desde=45000)',
+    llama con esos valores para seguir leyendo sin volver a descargar. Las lecturas
+    caducan a los 7 dias.
+    """
+    return lecturas.tramo(lectura, desde, max_chars)
+
+
+@herramienta("Abrir una cita")
+async def buscar_por_cita(cita: str, seccion: str = "todo", palabras_clave: str = "",
+                          max_chars: int = 30000) -> str:
+    """Abre CUALQUIER cita juridica en su fuente oficial, detectando de que tipo es.
+
+    cita: 'STC 31/2010', 'STS 1177/2014', 'SAP VA 863/2026', 'ECLI:ES:TS:2014:4786',
+    'C-311/18', 'ECLI:EU:C:2020:559', 'art. 1902 CC', 'articulo 46 de la Ley 29/1998',
+    'art. 17 RGPD', 'Ley 29/1998', 'Directiva 93/13/CEE', 'BOE-A-2000-323', 'V0282-26'
+    (DGT), '00/06291/2024' (TEAC).
+    seccion / palabras_clave: para resoluciones judiciales, como en leer_sentencia.
+    Ojo: 'STS 1177/2014' se interpreta como ROJ; si es el numero de resolucion, busca
+    con buscar_sentencias.
+    """
+    return await verificacion.buscar_por_cita(cita, seccion=seccion,
+                                              palabras_clave=palabras_clave,
+                                              max_chars=max_chars)
+
+
+@herramienta("Verificar las citas de un escrito")
+async def verificar_escrito(texto: str = "", ruta: str = "", comprobar_cendoj: bool = False,
+                            max_cendoj: int = 3, incluir_texto: bool = False) -> str:
+    """Extrae TODAS las citas de un escrito (articulos con su norma, STS/STC/ROJ, ECLI,
+    asuntos del TJUE, BOE-A, consultas DGT, RG del TEAC) y comprueba cada una en su
+    fuente oficial: si existe, si el articulo esta derogado y que redaccion esta vigente.
+
+    Devuelve un dossier con la frase del escrito que invoca cada cita y el texto oficial,
+    para que compares lo que el escrito AFIRMA con lo que la norma o sentencia DICE.
+    texto: el escrito pegado. ruta: alternativa, fichero .docx, .pdf, .md o .txt.
+    comprobar_cendoj: consultar tambien las sentencias del CENDOJ (navegador, 10-30 s
+    cada una; como mucho max_cendoj). incluir_texto: texto integro en vez de extractos.
+    """
+    return await verificacion.verificar_escrito(texto=texto, ruta=ruta,
+                                                comprobar_cendoj=comprobar_cendoj,
+                                                max_cendoj=max_cendoj,
+                                                incluir_texto=incluir_texto)
+
+
+@herramienta("Guia para redactar un escrito")
+def guia_escrito(escrito: str = "", jurisdiccion: str = "", verificar: bool = True) -> str:
+    """Metodo para redactar un escrito: preguntas previas, estructura, plazos,
+    documentos y errores tipicos, con su base legal VIGENTE comprobada en el BOE.
+
+    Llamala ANTES de redactar una demanda, contestacion, recurso, monitorio,
+    demanda de despido, recurso contencioso o administrativo, querella...
+    escrito: id ('demanda-juicio-verbal') o descripcion ('recurso de apelacion').
+    Vacio = catalogo. jurisdiccion: 'civil', 'laboral', 'contencioso', 'penal'.
+    verificar=False omite la consulta al BOE (mas rapido).
+    """
+    return escritos.guia_escrito(escrito, jurisdiccion=jurisdiccion, verificar=verificar)
+
+
+# --------------------------------------------------------------------------
+# Jurisprudencia: CENDOJ
+# --------------------------------------------------------------------------
+
+@herramienta("Preparar busqueda en el CENDOJ (sin red)", red=False)
 def cendoj_construir_busqueda(
     consulta: str,
     base: str = "AN",
@@ -82,16 +204,12 @@ def cendoj_construir_busqueda(
     fecha_hasta: str = "",
     ponente: str = "",
 ) -> str:
-    """Prepara una busqueda de jurisprudencia en el CENDOJ para abrir en el navegador.
+    """Respaldo offline: prepara la URL y los filtros del buscador del CENDOJ para abrirlos
+    en el navegador. Usala solo si buscar_sentencias falla.
 
-    Traduce lenguaje natural a los parametros oficiales del buscador (codigos de
-    organo, sigla de provincia, jurisdiccion) y devuelve la URL directa mas los
-    filtros avanzados a marcar. NO descarga: el acceso lo hace el usuario.
-
-    consulta: texto libre. base: 'AN' (todo el CENDOJ), 'TS', 'TC', 'TJUE'.
-    tipo_organo: 'AP','TSJ','JM'... provincia: 'Murcia','Valladolid'...
-    jurisdiccion: 'CIVIL','PENAL','CONTENCIOSO','SOCIAL','MILITAR'.
-    tipo_resolucion: 'SENTENCIA' o 'AUTO'. fecha_desde/hasta: dd/mm/aaaa.
+    consulta: texto libre. base: 'AN' (todo el CENDOJ), 'TS'. tipo_organo: 'AP','TSJ',
+    'JM'... provincia: 'Murcia'... jurisdiccion: 'CIVIL','PENAL','CONTENCIOSO','SOCIAL',
+    'MILITAR'. tipo_resolucion: 'SENTENCIA' o 'AUTO'. fechas: dd/mm/aaaa.
     """
     return cendoj.construir_busqueda(
         consulta=consulta, base=base, tipo_organo=tipo_organo, provincia=provincia,
@@ -100,21 +218,16 @@ def cendoj_construir_busqueda(
     )
 
 
-@mcp.tool()
+@herramienta("Analizar una cita judicial (sin red)", red=False)
 def cendoj_analizar_cita(cita: str) -> str:
-    """Verifica y descompone una cita judicial (ECLI, ROJ o Id Cendoj).
-
-    Detecta autos (sufijo 'A'), convierte ROJ<->ECLI, descompone el Id Cendoj
-    (municipio/organo/seccion/anio/serial) y da el enlace del buscador para abrir
-    el documento. Puro parseo offline, no toca la red.
-
-    cita: 'STS 1177/2014', 'ECLI:ES:APB:2019:9672A', '30030330022026100387',
-    'C-311/19'...
+    """Descompone una cita judicial (ECLI, ROJ o Id Cendoj) sin tocar la red: detecta
+    autos (sufijo 'A'), convierte ROJ<->ECLI y descompone el Id Cendoj. Para LEER la
+    resolucion usa buscar_por_cita.
     """
     return cendoj.analizar_cita(cita)
 
 
-@mcp.tool()
+@herramienta("Buscar jurisprudencia (CENDOJ)")
 async def buscar_sentencias(
     consulta: str = "",
     jurisdiccion: str = "",
@@ -131,22 +244,16 @@ async def buscar_sentencias(
     maximo: int = 10,
     orden: str = "",
 ) -> str:
-    """Busca jurisprudencia REAL en el CENDOJ y devuelve la lista de resoluciones.
-
-    A diferencia de cendoj_construir_busqueda (que solo prepara un enlace), esta
-    tool accede al buscador con un navegador real y trae los resultados: ROJ, ECLI,
-    organo, fecha, ponente, resumen y la `url` del documento (pasala a
-    `leer_sentencia` para el texto integro). Uso profesional propio, bajo demanda.
-    Tarda 10-30 s (navegador real).
+    """Busca jurisprudencia en el CENDOJ (TS, AN, TSJ, AP, juzgados) y devuelve ROJ, ECLI,
+    organo, fecha, ponente, resumen y la `url` para leer_sentencia. Tarda 10-30 s
+    (navegador real). Para el TC usa buscar_tc; para el TJUE, buscar_tjue.
 
     consulta: texto libre ('despido improcedente', 'clausula suelo').
     jurisdiccion: 'Civil','Penal','Contencioso','Social','Militar' (coma para varias).
-    localizacion: CCAA o provincia ('Murcia','Cataluña','Barcelona'; coma para varias).
+    localizacion: CCAA o provincia ('Murcia','Cataluña','Barcelona').
     fecha_desde/hasta: AAAA-MM-DD o DD/MM/AAAA. roj/ecli/ponente/norma/n_recurso/
-    n_resolucion: filtros del buscador avanzado.
-    maximo: resultados a devolver (hasta 50). pagina: pagina de resultados.
-    orden: 'fecha' (defecto, mas recientes primero), 'relevancia', 'antiguas',
-    'nuevo' (ultimas incorporadas al CENDOJ) u 'organo'.
+    n_resolucion: filtros avanzados. maximo: hasta 50. pagina: pagina de resultados.
+    orden: 'fecha' (defecto), 'relevancia', 'antiguas', 'nuevo' u 'organo'.
     """
     return await cendoj_live.buscar_sentencias(
         consulta=consulta, jurisdiccion=jurisdiccion, localizacion=localizacion,
@@ -156,7 +263,7 @@ async def buscar_sentencias(
     )
 
 
-@mcp.tool()
+@herramienta("Leer una sentencia (CENDOJ)", escribe=True)
 async def leer_sentencia(
     url: str = "",
     roj: str = "",
@@ -168,21 +275,14 @@ async def leer_sentencia(
     ruta: str = "",
     max_chars: int = 45000,
 ) -> str:
-    """Texto de una resolucion del CENDOJ: integro, una seccion o solo los parrafos
-    que tratan de algo.
+    """Texto de una resolucion del CENDOJ: integra, una seccion o solo los parrafos que
+    tratan de algo. Se identifica por `url` (de buscar_sentencias; ~2 s) o por roj/ecli.
 
-    Se identifica por `url` (la que da buscar_sentencias; descarga directa en ~2 s,
-    sin navegador) o por `roj`/`ecli` (se localiza primero en el buscador). Se
-    cachea: la 2a lectura es instantanea.
-
-    seccion: 'todo' (defecto), 'fallo', 'fundamentos', 'antecedentes', 'hechos',
-    'encabezado'. Para leer solo lo que decide el tribunal: seccion='fallo'.
-    palabras_clave: devuelve SOLO los parrafos que contienen esas palabras
-    ('clausula suelo transparencia') — ideal para localizar el pasaje relevante sin
-    leer 40.000 caracteres.
-    guardar_pdf / guardar_md: ademas guardan el PDF original o un Markdown con
-    metadatos y secciones. `ruta`: carpeta destino (defecto ./descargas del
-    servidor). max_chars: limite de lo devuelto al chat (el fichero es completo).
+    seccion: 'todo', 'fallo', 'fundamentos', 'antecedentes', 'hechos', 'encabezado'.
+    palabras_clave: solo los parrafos que las contienen ('clausula suelo transparencia').
+    guardar_pdf / guardar_md: guarda tambien el PDF original o un Markdown en `ruta`
+    (carpeta del expediente; defecto ./descargas). max_chars: tope de lo devuelto; el
+    resto queda disponible con continuar_lectura.
     """
     return await cendoj_live.leer_sentencia(
         url=url, roj=roj, ecli=ecli, seccion=seccion, palabras_clave=palabras_clave,
@@ -190,7 +290,7 @@ async def leer_sentencia(
     )
 
 
-@mcp.tool()
+@herramienta("Descargar una sentencia al expediente", escribe=True)
 async def descargar_sentencia(
     url: str = "",
     roj: str = "",
@@ -200,108 +300,176 @@ async def descargar_sentencia(
 ) -> str:
     """Guarda una resolucion del CENDOJ en disco SIN volcar su texto al chat.
 
-    Identificala por `url` (de buscar_sentencias) o por `roj`/`ecli`.
-    formato: 'pdf' (original), 'md' (Markdown con metadatos y secciones) o
-    'ambos'. `ruta`: carpeta destino, p.ej. la del expediente del cliente
-    (defecto ./descargas del servidor). Devuelve la ficha y las rutas guardadas.
+    url (de buscar_sentencias) o roj/ecli. formato: 'pdf', 'md' o 'ambos'.
+    ruta: carpeta destino (p.ej. la del expediente; defecto ./descargas).
     """
     return await cendoj_live.descargar_sentencia(
         url=url, roj=roj, ecli=ecli, formato=formato, ruta=ruta,
     )
 
 
-@mcp.tool()
-def buscar_articulo(ley: str, articulo: str) -> str:
-    """Texto VIGENTE de un articulo de una ley espanola (legislacion consolidada del BOE).
+# --------------------------------------------------------------------------
+# Jurisprudencia: Tribunal Constitucional y TJUE
+# --------------------------------------------------------------------------
 
-    Fuente oficial de datos abiertos, sin captcha. Devuelve el texto integro
-    vigente, la fecha de vigencia y el enlace consolidado.
+@herramienta("Buscar jurisprudencia constitucional (TC)")
+def buscar_tc(consulta: str = "", ambito: str = "todo", numero: str = "", anio: str = "",
+              ecli: str = "", tipo: str = "", materia: str = "", fecha_desde: str = "",
+              fecha_hasta: str = "", pagina: int = 1, maximo: int = 10) -> str:
+    """Busca en el Buscador de Jurisprudencia Constitucional (STC/ATC/DTC desde 1980) y
+    devuelve resultados con su sintesis y un `id` para leer_tc.
 
-    ley: sigla (LEC, CC, CP, CE, ET, LGT, LAU, LPH, LSC...), nombre completo
-    ('Codigo Civil') o identificador BOE-A (BOE-A-2000-323).
-    articulo: numero ('394', '1902', 'art. 138', '439 bis').
+    consulta: texto libre o cita ('STC 31/2010'). ambito: 'todo', 'fundamentos', 'fallo',
+    'antecedentes', 'votos', 'sintesis'. numero+anio, ecli ('ECLI:ES:TC:2010:31').
+    tipo: 'sentencia'|'auto'|'declaracion'. materia: 'civil', 'penal', 'social',
+    'contencioso', 'electoral', 'parlamentario', 'militar'. Fechas AAAA-MM-DD.
     """
+    return tc.buscar_tc(consulta=consulta, ambito=ambito, numero=numero, anio=anio, ecli=ecli,
+                        tipo=tipo, materia=materia, fecha_desde=fecha_desde,
+                        fecha_hasta=fecha_hasta, pagina=pagina, maximo=maximo)
+
+
+@herramienta("Leer una resolucion del TC", escribe=True)
+def leer_tc(referencia: str, seccion: str = "todo", palabras_clave: str = "",
+            guardar_md: bool = False, ruta: str = "", max_chars: int = 45000) -> str:
+    """Texto de una resolucion del Tribunal Constitucional, ya seccionado.
+
+    referencia: `id` de buscar_tc, cita ('STC 31/2010', 'ATC 12/2020') o ECLI.
+    seccion: 'todo', 'fallo', 'fundamentos', 'antecedentes', 'votos', 'ficha',
+    'extractos'. palabras_clave: solo los parrafos que las contienen. guardar_md: guarda
+    el Markdown completo en `ruta`. Algunas STC son enormes: acota con seccion.
+    """
+    return tc.leer_tc(referencia, seccion=seccion, palabras_clave=palabras_clave,
+                      guardar_md=guardar_md, ruta=ruta, max_chars=max_chars)
+
+
+@herramienta("Buscar jurisprudencia del TJUE")
+def buscar_tjue(consulta: str, desde: str = "", hasta: str = "", tribunal: str = "",
+                maximo: int = 10) -> str:
+    """Busca sentencias del TJUE y del Tribunal General (CELLAR, fuente oficial, en espanol).
+
+    consulta: palabras del titulo con tildes ('cláusulas abusivas consumidor'), un asunto
+    ('C-311/18': sentencia, conclusiones y autos) o un ECLI. desde/hasta: AAAA-MM-DD.
+    tribunal: '' (ambos), 'justicia' o 'general'. Devuelve ECLI, asunto y CELEX.
+    """
+    return tjue.buscar_tjue(consulta, desde=desde, hasta=hasta, tribunal=tribunal, maximo=maximo)
+
+
+@herramienta("Leer una resolucion del TJUE", escribe=True)
+def leer_tjue(referencia: str, tipo: str = "sentencia", seccion: str = "todo",
+              palabras_clave: str = "", guardar_md: bool = False, ruta: str = "",
+              max_chars: int = 45000) -> str:
+    """Texto en espanol de una sentencia, auto o conclusiones del TJUE / Tribunal General.
+
+    referencia: asunto ('C-311/18'), ECLI o CELEX. tipo: 'sentencia', 'conclusiones'
+    (Abogado General) o 'auto'. seccion: 'todo' o 'fallo'. palabras_clave: solo los
+    parrafos que las contienen. guardar_md: texto completo en `ruta`.
+    """
+    return tjue.leer_tjue(referencia, tipo=tipo, seccion=seccion, palabras_clave=palabras_clave,
+                          guardar_md=guardar_md, ruta=ruta, max_chars=max_chars)
+
+
+# --------------------------------------------------------------------------
+# Legislacion: BOE y UE
+# --------------------------------------------------------------------------
+
+@herramienta("Texto vigente de un articulo")
+def buscar_articulo(ley: str, articulo: str) -> str:
+    """Texto VIGENTE de un articulo o disposicion, con su fecha de vigencia y la norma
+    que le dio la redaccion actual (legislacion consolidada del BOE).
+
+    ley: sigla (LEC, CC, CP, CE, ET, LGT, LAU, LPH, LSC, LOPDGDD, LGSS, LJCA, LPAC...),
+    nombre ('Codigo Civil'), cita ('Ley 29/1998', 'LO 3/2018', 'RD 1065/2007') o BOE-A.
+    Normas UE ('RGPD', 'Directiva 93/13/CEE', 'Reglamento (UE) 2024/1689') se leen de
+    CELLAR en su version original publicada.
+    articulo: '394', 'art. 1902', '439 bis', o una disposicion: 'DA 15ª',
+    'disposicion transitoria unica'.
+    """
+    if es_norma_ue(ley):
+        return normativa_ue.articulo_ue(ley, articulo)
     return boe.buscar_articulo(ley, articulo)
 
 
-@mcp.tool()
-def sumario_boe(fecha: str, seccion: str = "", contiene: str = "") -> str:
-    """Que se publico en el BOE de un dia (via API oficial de datos abiertos).
-
-    fecha: AAAA-MM-DD o DD/MM/AAAA. contiene: filtra por texto en el titulo.
-    Devuelve los identificadores (BOE-A-...) para leer con leer_boe.
-    """
-    return boe.sumario_boe(fecha, seccion=seccion, contiene=contiene)
-
-
-@mcp.tool()
+@herramienta("Buscar normas en el BOE")
 def buscar_boe(consulta: str, desde: str = "", hasta: str = "", limite: int = 15) -> str:
-    """Localiza legislacion (leyes, RD, ordenes...) cuyo titulo contiene la materia.
-
-    Busca en el feed oficial de legislacion consolidada (mas reciente primero),
-    con rango de fechas opcional (AAAA-MM-DD). Para el texto de un articulo usa
-    buscar_articulo; para jurisprudencia, las tools cendoj_*.
+    """Localiza leyes, reales decretos, ordenes... cuyo titulo contiene la materia, en toda
+    la legislacion consolidada del BOE (mas recientes primero). Fechas AAAA-MM-DD.
+    Para el texto de un articulo: buscar_articulo.
     """
     return boe.buscar_boe(consulta, desde=desde, hasta=hasta, limite=limite)
 
 
-@mcp.tool()
+@herramienta("Sumario del BOE de un dia")
+def sumario_boe(fecha: str, seccion: str = "", contiene: str = "") -> str:
+    """Que se publico en el BOE un dia. fecha: AAAA-MM-DD o DD/MM/AAAA.
+    contiene: filtra por texto del titulo. Devuelve los BOE-A para leer_boe.
+    """
+    return boe.sumario_boe(fecha, seccion=seccion, contiene=contiene)
+
+
+@herramienta("Vigilar el BOE en un periodo")
 def novedades_boe(contiene: str, desde: str, hasta: str, seccion: str = "") -> str:
-    """Vigila el BOE: barre los sumarios entre dos fechas (max 31 dias) y devuelve
-    los items cuyo titulo contiene el texto o NIF indicado (edictos, subvenciones,
-    nombramientos, anuncios sobre una empresa...). Fechas AAAA-MM-DD.
+    """Barre los sumarios del BOE entre dos fechas (max 31 dias) y devuelve lo que contiene
+    el texto o NIF indicado (edictos, subvenciones, nombramientos, anuncios). AAAA-MM-DD.
     """
     return boe.novedades_boe(contiene, desde, hasta, seccion=seccion)
 
 
-@mcp.tool()
+@herramienta("Abrir una norma del BOE")
 def leer_boe(identificador: str) -> str:
-    """Abre una norma consolidada del BOE por su identificador (BOE-A-AAAA-N).
-
-    Para el texto vigente de un articulo concreto usa mejor buscar_articulo.
+    """Indice de una norma consolidada del BOE por su identificador (BOE-A-AAAA-N) y su
+    enlace. Para el texto de un articulo usa buscar_articulo.
     """
     return boe.leer_boe(identificador)
 
 
+@herramienta("Normativa de la UE")
+def buscar_norma_ue(referencia: str, articulo: str = "") -> str:
+    """Reglamento, directiva o decision de la UE en espanol.
+
+    referencia: 'RGPD', 'Directiva 93/13/CEE', 'Reglamento (UE) 2016/679' o CELEX.
+    articulo: si se indica, devuelve su texto (CELLAR, version original publicada en el
+    DOUE); si no, el texto completo por tramos y el enlace al consolidado de EUR-Lex.
+    """
+    if articulo:
+        return normativa_ue.articulo_ue(referencia, articulo)
+    return normativa_ue.articulo_ue(referencia) + "\n\n" + deep_links.norma_ue(referencia)
+
+
 # --------------------------------------------------------------------------
-# Mercantil (BORME, via API oficial de datos abiertos)
+# Mercantil
 # --------------------------------------------------------------------------
 
-@mcp.tool()
+@herramienta("Sumario del BORME de un dia")
 def sumario_borme(fecha: str, contiene: str = "") -> str:
-    """Que se publico en el BORME de un dia (actos societarios: nombramientos,
-    constituciones, disoluciones, concursos). fecha AAAA-MM-DD o DD/MM/AAAA.
-    contiene: filtra por texto (p.ej. una provincia o una denominacion social).
+    """Actos societarios publicados en el BORME un dia (nombramientos, constituciones,
+    disoluciones, concursos). fecha AAAA-MM-DD o DD/MM/AAAA. contiene: provincia o
+    denominacion social.
     """
     return mercantil.sumario_borme(fecha, contiene=contiene)
 
 
-@mcp.tool()
+@herramienta("Ficha registral de una empresa", red=False)
 def buscar_empresa_mercantil(empresa: str) -> str:
-    """Ficha registral de una sociedad por nombre o CIF (BORME / Registro Mercantil).
-
-    El BORME solo se indexa por fecha, no hay busqueda abierta por nombre: la tool
-    prepara los buscadores oficiales para que los abras (indice sin fe publica,
-    sin cuentas anuales).
+    """Prepara los buscadores oficiales del Registro Mercantil para una sociedad (nombre o
+    CIF): el BORME no tiene busqueda abierta por nombre, asi que el enlace lo abres tu.
     """
     return mercantil.buscar_empresa_mercantil(empresa)
 
 
 # --------------------------------------------------------------------------
-# Catastro (servicios OVC oficiales de la Direccion General del Catastro)
+# Catastro
 # --------------------------------------------------------------------------
 
-@mcp.tool()
+@herramienta("Consultar el Catastro")
 def consultar_catastro(referencia_catastral: str = "", direccion: str = "",
                        municipio: str = "", provincia: str = "", poligono: str = "",
                        parcela: str = "", coordenadas: str = "", sigla: str = "",
                        numero: str = "") -> str:
-    """Datos catastrales NO protegidos de un inmueble o finca (DG del Catastro).
-
-    Identifica por referencia_catastral (14/20 car.), direccion+municipio,
-    poligono+parcela+municipio (rustica) o coordenadas 'lat,lon'. Devuelve
-    superficie, uso, antiguedad, plantas, localizacion y referencia. NO da titular
-    ni valor catastral (protegidos). No cubre Pais Vasco ni Navarra (foral).
+    """Datos catastrales NO protegidos de un inmueble o finca: superficie, uso,
+    antiguedad, plantas, localizacion y referencia. Por referencia_catastral, por
+    direccion+municipio, por poligono+parcela+municipio o por coordenadas 'lat,lon'.
+    Sin titular ni valor catastral; no cubre Pais Vasco ni Navarra.
     """
     return catastro.consultar_catastro(
         referencia_catastral=referencia_catastral, direccion=direccion,
@@ -310,97 +478,87 @@ def consultar_catastro(referencia_catastral: str = "", direccion: str = "",
     )
 
 
-@mcp.tool()
+@herramienta("Callejero del Catastro")
 def callejero_catastro(municipio: str = "", provincia: str = "", via: str = "",
                        numero: str = "") -> str:
-    """Callejero del Catastro: provincias, municipios o vias, para desambiguar
-    una direccion. Sin args lista provincias; con provincia, sus municipios; con
-    via, las vias que coinciden en ese municipio.
+    """Provincias, municipios o vias del Catastro, para desambiguar una direccion. Sin
+    args lista provincias; con provincia, sus municipios; con via, las que coinciden.
     """
     return catastro.callejero_catastro(municipio=municipio, provincia=provincia, via=via, numero=numero)
 
 
 # --------------------------------------------------------------------------
-# Convenios colectivos (REGCON: busqueda HITL; lectura del texto desde BOE)
+# Convenios, boletines y ordenanzas
 # --------------------------------------------------------------------------
 
-@mcp.tool()
+@herramienta("Localizar un convenio colectivo", red=False)
 def buscar_convenio(consulta: str, territorio: str = "", ambito: str = "sector",
                     maximo: int = 8) -> str:
-    """Localiza el convenio colectivo de un sector y territorio (registro REGCON).
-
-    El buscador de REGCON exige sesion con JavaScript, asi que la tool prepara la
-    busqueda oficial (con el territorio y ambito ya traducidos) para que la abras.
-    Si ya tienes el BOE-A de su publicacion, usa leer_convenio directamente.
+    """Prepara la busqueda oficial de REGCON (exige JavaScript) para un convenio por sector
+    y territorio. Si ya tienes el BOE-A de su publicacion, usa leer_convenio.
     """
     return regcon.buscar_convenio(consulta, territorio=territorio, ambito=ambito, maximo=maximo)
 
 
-@mcp.tool()
+@herramienta("Leer un convenio colectivo")
 def leer_convenio(codigo: str = "", consulta: str = "", territorio: str = "",
                   articulo: str = "") -> str:
-    """Texto oficial de un convenio colectivo desde su publicacion en el BOE.
+    """Texto oficial de un convenio colectivo publicado en el BOE.
 
-    codigo: identificador BOE-A de la publicacion (automatico) o codigo REGCON de
-    14 digitos / texto libre (redirige a la busqueda). articulo: devuelve solo ese
-    articulo si se indica.
+    codigo: BOE-A de la publicacion (o codigo REGCON / texto libre, que redirige a la
+    busqueda). articulo: solo ese articulo.
     """
     return regcon.leer_convenio(codigo=codigo, consulta=consulta, territorio=territorio, articulo=articulo)
 
 
-@mcp.tool()
+@herramienta("Vigencia de un convenio")
 def vigencia_convenio(codigo: str) -> str:
     """Estado de vigencia y tramites de un convenio (codigo REGCON de 14 digitos)."""
     return regcon.vigencia_convenio(codigo)
 
 
-# --------------------------------------------------------------------------
-# Boletines autonomicos y provinciales (BORM, BOP...)
-# --------------------------------------------------------------------------
-
-@mcp.tool()
+@herramienta("Leer un boletin autonomico o provincial")
 def leer_boletin(url: str = "", boletin: str = "", ano: str = "", numero: str = "",
                  articulo: str = "", max_chars: int = 14000) -> str:
-    """Texto oficial de una disposicion de un boletin AUTONOMICO o PROVINCIAL.
+    """Texto oficial de una disposicion de un boletin AUTONOMICO o PROVINCIAL (convenios,
+    ordenanzas, fiestas locales... que no estan en el BOE).
 
-    Usala cuando la norma NO este en el BOE: convenios colectivos autonomicos y
-    provinciales, ordenanzas, calendarios de fiestas locales... `leer_convenio`
-    solo cubre lo publicado en el BOE; esta tool cubre el resto.
-
-    Se le da la URL oficial del documento (PDF o HTML), o bien un boletin
-    conocido («borm») con `ano` y `numero` de anuncio. Con `articulo` devuelve
-    solo ese articulo.
+    url: URL oficial del documento (PDF o HTML), o boletin conocido ('borm') + ano +
+    numero de anuncio. articulo: solo ese articulo.
     """
     return boletines.leer_boletin(url=url, boletin=boletin, ano=ano, numero=numero,
                                   articulo=articulo, max_chars=max_chars)
 
 
+@herramienta("Ordenanzas municipales", red=False)
+def buscar_ordenanzas(municipio: str, consulta: str = "", provincia: str = "") -> str:
+    """Donde y como localizar las ordenanzas de un ayuntamiento (terrazas, ruido, residuos,
+    IBI, ICIO, plusvalia, pisos turisticos, ZBE...): boletin oficial de la provincia
+    (enlace verificado) y terminos de busqueda. Con la URL del anuncio, leer_boletin
+    extrae el texto. provincia: necesaria si el municipio no es capital.
+    """
+    return ordenanzas.buscar_ordenanzas(municipio, consulta=consulta, provincia=provincia)
+
+
 # --------------------------------------------------------------------------
-# Calendario laboral y computo de plazos
+# Calendario laboral y plazos
 # --------------------------------------------------------------------------
 
-@mcp.tool()
+@herramienta("Calendario laboral")
 def calendario_laboral(anio: int, comunidad: str = "") -> str:
-    """Fiestas laborales de un ano, segun la Resolucion anual publicada en el BOE.
-
-    `comunidad`: nombre de la CCAA (p.ej. «Murcia», «Andalucia»). Sin ella,
-    devuelve solo las nacionales. NO incluye las dos fiestas locales de cada
-    municipio, que publica el boletin autonomico.
+    """Fiestas laborales de un ano segun la Resolucion anual del BOE: nacionales y, con
+    `comunidad` ('Murcia', 'Andalucia'), las autonomicas. NO incluye las fiestas locales.
     """
     return calendario.calendario_laboral(anio, comunidad)
 
 
-@mcp.tool()
+@herramienta("Computo de plazos")
 def computo_plazo(desde: str, dias: int, comunidad: str = "",
                   festivos_locales: str = "", naturales: bool = False) -> str:
-    """Calcula el vencimiento de un plazo procesal o sustantivo.
-
-    `desde`: dia inicial del computo (dd/mm/aaaa), ya determinado por quien
-    llama (p.ej. el dia siguiente al despido). `dias`: numero de dias.
-    En dias habiles excluye sabados, domingos y festivos oficiales de la
-    comunidad. `festivos_locales`: fechas adicionales separadas por comas
-    (las dos fiestas del municipio). `naturales=True` para plazos en dias
-    naturales.
+    """Vencimiento de un plazo. `desde`: dia inicial del computo (dd/mm/aaaa), ya
+    determinado (p.ej. el dia siguiente al despido). En dias habiles excluye sabados,
+    domingos y festivos de la comunidad; `festivos_locales`: fechas extra separadas por
+    comas. naturales=True para plazos en dias naturales.
     """
     return calendario.computo_plazo(desde, dias, comunidad=comunidad,
                                     festivos_locales=festivos_locales,
@@ -408,129 +566,45 @@ def computo_plazo(desde: str, dias: int, comunidad: str = "",
 
 
 # --------------------------------------------------------------------------
-# Fiscal: DGT (consultas de Hacienda) y TEAC/TEAR (doctrina economico-adva)
+# Fiscal: DGT y TEAC/TEAR
 # --------------------------------------------------------------------------
 
-@mcp.tool()
+@herramienta("Buscar consultas de la DGT")
 def buscar_consultas_hacienda(consulta: str = "", numero: str = "", normativa: str = "",
                               desde: str = "", hasta: str = "", tipo: str = "vinculantes",
                               limite: int = 15) -> str:
-    """Doctrina de la DGT: consultas vinculantes/generales de Hacienda sobre tributos.
+    """Consultas vinculantes o generales de la Direccion General de Tributos.
 
-    consulta: texto libre (respeta las tildes: el buscador de la DGT es sensible a
-    acentos). numero: 'V0282-26'. tipo: 'vinculantes' (defecto) o 'generales'.
-    Para el texto integro de una: leer_consulta_hacienda(numero).
+    consulta: texto libre CON tildes (el buscador es sensible a acentos). numero:
+    'V0282-26'. tipo: 'vinculantes' o 'generales'. Texto: leer_consulta_hacienda.
     """
     return dgt.buscar_consultas_hacienda(consulta=consulta, numero=numero, normativa=normativa,
                                          desde=desde, hasta=hasta, tipo=tipo, limite=limite)
 
 
-@mcp.tool()
-def leer_consulta_hacienda(numero: str) -> str:
-    """Texto integro de una consulta de la DGT por su numero (p.ej. 'V0282-26')."""
-    return dgt.leer_consulta_hacienda(numero)
+@herramienta("Leer una consulta de la DGT")
+def leer_consulta_hacienda(numero: str, max_chars: int = 30000) -> str:
+    """Texto integro de una consulta de la DGT por su numero ('V0282-26')."""
+    return dgt.leer_consulta_hacienda(numero, max_chars=max_chars)
 
 
-@mcp.tool()
+@herramienta("Buscar doctrina del TEAC/TEAR")
 def buscar_doctrina_teac(consulta: str = "", frase: str = "", numero_rg: str = "",
                          organo: str = "TEAC", desde: str = "", hasta: str = "",
                          maximo: int = 10) -> str:
-    """Doctrina y criterios del TEAC/TEAR (via administrativa previa al contencioso).
+    """Doctrina y criterios del TEAC/TEAR (via economico-administrativa).
 
-    consulta: texto libre. frase: frase exacta (mas precisa; el buscador no filtra
-    en AND estricto). numero_rg: '00/06291/2024'. organo: 'TEAC' (defecto) o un TEAR.
-    Para la ficha + texto integro: leer_resolucion_teac(numero_rg).
+    consulta: texto libre. frase: frase exacta (mas precisa). numero_rg: '00/06291/2024'.
+    organo: 'TEAC' o un TEAR. Ficha + texto: leer_resolucion_teac.
     """
     return teac.buscar_doctrina_teac(consulta=consulta, frase=frase, numero_rg=numero_rg,
                                      organo=organo, desde=desde, hasta=hasta, maximo=maximo)
 
 
-@mcp.tool()
+@herramienta("Leer una resolucion del TEAC/TEAR")
 def leer_resolucion_teac(numero_rg: str) -> str:
-    """Ficha doctrinal + texto integro de una resolucion del TEAC/TEAR por su RG."""
+    """Ficha doctrinal y enlace al texto integro de una resolucion TEA por su RG."""
     return teac.leer_resolucion_teac(numero_rg)
-
-
-# --------------------------------------------------------------------------
-# Normativa UE / TC / TJUE (humano en el bucle: enlace oficial preparado)
-# --------------------------------------------------------------------------
-
-@mcp.tool()
-def buscar_norma_ue(referencia: str, articulo: str = "") -> str:
-    """Prepara el enlace EUR-Lex (texto consolidado en espanol) de una norma UE.
-
-    referencia: 'RGPD', 'Directiva 93/13/CEE', 'Reglamento (UE) 2016/679' o el
-    CELEX directo ('32016R0679'). EUR-Lex aplica anti-bot, asi que el enlace lo
-    abres tu.
-    """
-    return deep_links.norma_ue(referencia, articulo=articulo)
-
-
-@mcp.tool()
-def buscar_tc(consulta: str = "", ambito: str = "todo", numero: str = "", anio: str = "",
-              ecli: str = "", tipo: str = "", materia: str = "", fecha_desde: str = "",
-              fecha_hasta: str = "", pagina: int = 1, maximo: int = 10) -> str:
-    """Busca en el Buscador de Jurisprudencia Constitucional (TC) y devuelve resultados
-    REALES con su sintesis (sin navegador; fuente oficial hj.tribunalconstitucional.es).
-
-    consulta: texto libre ('clausula suelo tutela judicial') o una cita ('STC 31/2010').
-    ambito: donde buscar el texto libre: 'todo' (defecto), 'fundamentos', 'fallo',
-    'antecedentes', 'votos', 'sintesis'. numero+anio: '31' + '2010'. ecli:
-    'ECLI:ES:TC:2010:31'. tipo: 'sentencia'|'auto'|'declaracion'. materia: 'civil',
-    'penal', 'social', 'contencioso', 'electoral', 'parlamentario', 'militar'.
-    fecha_desde/hasta: AAAA-MM-DD o DD/MM/AAAA. Cada resultado trae un `id` para leer_tc.
-    """
-    return tc.buscar_tc(consulta=consulta, ambito=ambito, numero=numero, anio=anio, ecli=ecli,
-                        tipo=tipo, materia=materia, fecha_desde=fecha_desde,
-                        fecha_hasta=fecha_hasta, pagina=pagina, maximo=maximo)
-
-
-@mcp.tool()
-def leer_tc(referencia: str, seccion: str = "todo", palabras_clave: str = "",
-            guardar_md: bool = False, ruta: str = "", max_chars: int = 45000) -> str:
-    """Texto de una resolucion del Tribunal Constitucional, ya seccionado.
-
-    referencia: el `id` de buscar_tc, la cita ('STC 31/2010', 'ATC 12/2020') o el
-    ECLI ('ECLI:ES:TC:2019:76'). seccion: 'todo', 'fallo', 'fundamentos',
-    'antecedentes', 'votos', 'ficha' (organo, magistrados, ponente, BOE),
-    'extractos' (sintesis doctrinal). palabras_clave: solo los parrafos que las
-    contienen. guardar_md: guarda un Markdown completo por secciones en `ruta`.
-    Ojo: algunas STC son enormes (la 31/2010 supera 2 M de caracteres): usa
-    seccion o palabras_clave.
-    """
-    return tc.leer_tc(referencia, seccion=seccion, palabras_clave=palabras_clave,
-                      guardar_md=guardar_md, ruta=ruta, max_chars=max_chars)
-
-
-@mcp.tool()
-def buscar_tjue(consulta: str, desde: str = "", hasta: str = "", tribunal: str = "",
-                maximo: int = 10) -> str:
-    """Busca jurisprudencia del TJUE / Tribunal General via CELLAR (API publica
-    oficial de la Oficina de Publicaciones de la UE), en espanol y sin navegador.
-
-    consulta: palabras del TITULO/descriptores ('cláusulas abusivas consumidor',
-    con tildes), un asunto ('C-311/18': lista sentencia, conclusiones y autos) o un
-    ECLI ('ECLI:EU:C:2020:559'). desde/hasta: AAAA-MM-DD. tribunal: '' (ambos),
-    'justicia' o 'general'. Devuelve ECLI, fecha, asunto, titulo y CELEX (para leer_tjue).
-    """
-    return tjue.buscar_tjue(consulta, desde=desde, hasta=hasta, tribunal=tribunal, maximo=maximo)
-
-
-@mcp.tool()
-def leer_tjue(referencia: str, tipo: str = "sentencia", seccion: str = "todo",
-              palabras_clave: str = "", guardar_md: bool = False, ruta: str = "",
-              max_chars: int = 45000) -> str:
-    """Texto en ESPANOL de una sentencia, auto o conclusiones del TJUE / Tribunal
-    General (CELLAR, fuente oficial).
-
-    referencia: asunto ('C-311/18', 'T-778/16'), ECLI ('ECLI:EU:C:2020:559') o
-    CELEX ('62018CJ0311'). tipo: 'sentencia' (defecto), 'conclusiones' (del
-    Abogado General) o 'auto'. seccion: 'todo' o 'fallo' (parte dispositiva).
-    palabras_clave: solo los parrafos que las contienen. guardar_md: guarda el
-    texto completo en `ruta`.
-    """
-    return tjue.leer_tjue(referencia, tipo=tipo, seccion=seccion, palabras_clave=palabras_clave,
-                          guardar_md=guardar_md, ruta=ruta, max_chars=max_chars)
 
 
 def main() -> None:
