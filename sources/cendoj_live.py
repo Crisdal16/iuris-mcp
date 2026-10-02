@@ -81,15 +81,19 @@ def _cache_set(clave: str, valor) -> None:
 # Normalizacion de filtros a las etiquetas exactas del formulario
 # ---------------------------------------------------------------------------
 
+# Valor de la <option> en select#frmBusquedajurisprudencia_JURISDICCION
+# (comprobado en el formulario el 2026-10-02: CIVIL, PENAL, CONTENCIOSO, SOCIAL,
+# MILITAR, ESPECIAL).
 _JURISDICCION_LABEL = {
-    "CIVIL": "Civil",
-    "PENAL": "Penal",
-    "CONTENCIOSO": "Contencioso-Administrativo",
-    "CONTENCIOSO-ADMINISTRATIVO": "Contencioso-Administrativo",
-    "CONTENCIOSO ADMINISTRATIVO": "Contencioso-Administrativo",
-    "SOCIAL": "Social",
-    "LABORAL": "Social",
-    "MILITAR": "Militar",
+    "CIVIL": "CIVIL",
+    "PENAL": "PENAL",
+    "CONTENCIOSO": "CONTENCIOSO",
+    "CONTENCIOSO-ADMINISTRATIVO": "CONTENCIOSO",
+    "CONTENCIOSO ADMINISTRATIVO": "CONTENCIOSO",
+    "SOCIAL": "SOCIAL",
+    "LABORAL": "SOCIAL",
+    "MILITAR": "MILITAR",
+    "ESPECIAL": "ESPECIAL",
 }
 
 # Provincia -> Comunidad Autonoma (el filtro "Localizacion" del CENDOJ va por CCAA)
@@ -393,20 +397,25 @@ class CendojBrowser:
                 except Exception:
                     pass
 
+        avisos: list[str] = []
         if jurisdiccion:
-            await self._marcar_multiselect(
-                "button#frmBusquedajurisprudencia_JURISDICCIONmultiselec",
-                [_label_jurisdiccion(j) or j for j in jurisdiccion],
+            faltan = await self._marcar_select(
+                "select#frmBusquedajurisprudencia_JURISDICCION",
+                [_label_jurisdiccion(j) or j.upper() for j in jurisdiccion],
             )
+            if faltan:
+                avisos.append(f"jurisdiccion no aplicada: {', '.join(faltan)}")
         if localizacion:
-            await self._marcar_multiselect(
+            faltan = await self._marcar_multiselect(
                 "button#COMUNIDADmultiselec",
                 [_label_localizacion(loc) for loc in localizacion],
             )
+            if faltan:
+                avisos.append(f"localizacion no aplicada: {', '.join(faltan)}")
 
         await page.click("button#srcjur_search")
         if not await self._esperar_resultados(30000):
-            return {"total": 0, "resultados": []}
+            return {"total": 0, "resultados": [], "avisos": avisos}
 
         if por_pagina > 10:
             await self._resultados_por_pagina(por_pagina)
@@ -422,7 +431,7 @@ class CendojBrowser:
         resultados = await self._parsear_tarjetas()
         if total is None:
             total = len(resultados)
-        return {"total": total, "resultados": resultados}
+        return {"total": total, "resultados": resultados, "avisos": avisos}
 
     async def _esperar_carga(self) -> None:
         try:
@@ -546,23 +555,49 @@ class CendojBrowser:
         except Exception:
             pass
 
-    async def _marcar_multiselect(self, boton_sel: str, valores: list[str]) -> None:
+    async def _marcar_select(self, sel: str, valores: list[str]) -> list[str]:
+        """Selecciona opciones (por value) en un <select multiple> que el sitio
+        oculta tras bootstrap-multiselect. Devuelve los valores que no encontro."""
+        return await self.page.evaluate(
+            """([sel, vals]) => {
+                const s = document.querySelector(sel);
+                if (!s) return vals;
+                const faltan = [];
+                for (const v of vals) {
+                    const o = [...s.options].find(o => o.value === v);
+                    if (o) o.selected = true; else faltan.push(v);
+                }
+                if (window.jQuery && jQuery(s).multiselect) {
+                    try { jQuery(s).multiselect('refresh'); } catch (e) {}
+                }
+                s.dispatchEvent(new Event('change', {bubbles: true}));
+                return faltan;
+            }""",
+            [sel, valores],
+        )
+
+    async def _marcar_multiselect(self, boton_sel: str, valores: list[str]) -> list[str]:
+        """Marca valores en un desplegable de casillas. Devuelve los no encontrados."""
         page = self.page
         grupo = page.locator(f'div.btn-group:has({boton_sel}) button.multiselect').first
         if not await grupo.count():
-            return
+            return list(valores)
         await grupo.click()
         await page.wait_for_timeout(400)
+        faltan = []
         for val in valores:
             li = page.locator(
                 f'div.btn-group:has({boton_sel}) ul.multiselect-container li:has-text("{val}")'
             ).first
-            if await li.count():
-                chk = li.locator('input[type="checkbox"]')
-                if await chk.count() and not await chk.is_checked():
-                    await li.locator("label").click()
+            if not await li.count():
+                faltan.append(val)
+                continue
+            chk = li.locator('input[type="checkbox"]')
+            if await chk.count() and not await chk.is_checked():
+                await li.locator("label").click()
         await grupo.click()
         await page.wait_for_timeout(300)
+        return faltan
 
     async def _parsear_tarjetas(self) -> list[dict]:
         page = self.page
@@ -733,6 +768,8 @@ async def buscar_sentencias(
         return f"Sin resultados en el CENDOJ para esa busqueda (total: {total})."
 
     out = [f"CENDOJ — {total} resultado(s). Pagina {pagina}, mostrando {len(items)}:", ""]
+    for aviso in res.get("avisos") or []:
+        out.insert(1, f"AVISO: filtro {aviso}; los resultados NO estan filtrados por ese criterio.")
     for i, r in enumerate(items, 1):
         out.append(f"{i}. {r.get('roj') or r.get('titulo')}")
         linea = [x for x in (r.get("organo"), r.get("sede"), r.get("fecha")) if x]

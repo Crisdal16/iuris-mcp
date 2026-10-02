@@ -50,20 +50,23 @@ SENTENCIA = CABECERA + (
     "Que desestimamos el recurso de suplicación.\n"
 )
 
-# --- Jurisdiccion -> etiqueta exacta del formulario -------------------------
+# --- Jurisdiccion -> value de la <option> del formulario --------------------
+# Regresion: antes se buscaba un boton '..._JURISDICCIONmultiselec' que no existe
+# y el filtro se ignoraba en silencio (STS civiles al pedir 'Penal').
 
 def test_jurisdiccion_contencioso_variantes():
-    assert _label_jurisdiccion("contencioso") == "Contencioso-Administrativo"
-    assert _label_jurisdiccion("Contencioso-Administrativo") == "Contencioso-Administrativo"
-    assert _label_jurisdiccion("CONTENCIOSO ADMINISTRATIVO") == "Contencioso-Administrativo"
+    assert _label_jurisdiccion("contencioso") == "CONTENCIOSO"
+    assert _label_jurisdiccion("Contencioso-Administrativo") == "CONTENCIOSO"
+    assert _label_jurisdiccion("CONTENCIOSO ADMINISTRATIVO") == "CONTENCIOSO"
 
 
 def test_jurisdiccion_basicas_y_sinonimos():
-    assert _label_jurisdiccion("civil") == "Civil"
-    assert _label_jurisdiccion("Penal") == "Penal"
-    assert _label_jurisdiccion("SOCIAL") == "Social"
-    assert _label_jurisdiccion("laboral") == "Social"
-    assert _label_jurisdiccion("militar") == "Militar"
+    assert _label_jurisdiccion("civil") == "CIVIL"
+    assert _label_jurisdiccion("Penal") == "PENAL"
+    assert _label_jurisdiccion("SOCIAL") == "SOCIAL"
+    assert _label_jurisdiccion("laboral") == "SOCIAL"
+    assert _label_jurisdiccion("militar") == "MILITAR"
+    assert _label_jurisdiccion("especial") == "ESPECIAL"
 
 
 def test_jurisdiccion_desconocida():
