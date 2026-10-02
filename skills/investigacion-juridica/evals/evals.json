@@ -1,0 +1,23 @@
+{
+  "skill_name": "investigacion-juridica",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Un cliente mío, camarero en Murcia, fue despedido verbalmente el 3 de noviembre de 2025 sin carta. ¿Qué plazo tiene para reclamar, qué tiene que hacer antes de la demanda y qué dice el Supremo del despido verbal sin carta? Prepárame una nota para el expediente.",
+      "expected_output": "Nota con art. 59.3 ET y 103 LRJS vigentes (20 días hábiles, caducidad), conciliación previa (63 LRJS) y su efecto suspensivo, cómputo con computo_plazo (Murcia + aviso de fiestas locales), jurisprudencia TS sobre despido verbal/tácito leída con leer_sentencia, verificación de citas.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "¿Puedo reclamar a mi banco la cláusula de gastos hipotecarios de una hipoteca de 2010? Necesito saber el plazo de prescripción según el TJUE y el Supremo, y si tengo que intentar algo antes de demandar.",
+      "expected_output": "Directiva 93/13 art. 3/6, jurisprudencia TJUE sobre dies a quo (buscar_tjue/leer_tjue), STS posteriores (CENDOJ), art. 1964 CC vigente, MASC (art. 5 LO 1/2025, 399/403 LEC), riesgos y lagunas, verificación.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "La AEAT me ha negado la exención de IVA de unos cursos online que imparto en directo por Zoom. ¿Hay doctrina de la DGT o del TEAC que me ampare? Hazme una nota con los argumentos.",
+      "expected_output": "Art. 20.Uno.9º LIVA vigente, consultas DGT (incl. V0282-26) y doctrina TEAC, distinción servicio educativo vs. prestado por vía electrónica, efecto vinculante (arts. 89 y 239.8 LGT), verificación de citas.",
+      "files": []
+    }
+  ]
+}
