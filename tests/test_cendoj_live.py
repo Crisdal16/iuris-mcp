@@ -88,6 +88,14 @@ def test_localizacion_ccaa_se_respeta():
     assert _label_localizacion("Comunidad Valenciana") == "Comunidad Valenciana"
 
 
+def test_localizacion_nombres_del_formulario():
+    # Regresion: el panel del CENDOJ dice "BALEARES" y "CASTILLA LA MANCHA".
+    assert _label_localizacion("Islas Baleares") == "Baleares"
+    assert _label_localizacion("Palma") == "Baleares"
+    assert _label_localizacion("Castilla-La Mancha") == "Castilla La Mancha"
+    assert _label_localizacion("Toledo") == "Castilla La Mancha"
+
+
 # --- Fechas -----------------------------------------------------------------
 
 def test_fecha_iso_a_es():

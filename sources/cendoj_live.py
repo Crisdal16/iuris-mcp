@@ -96,8 +96,12 @@ _JURISDICCION_LABEL = {
     "ESPECIAL": "ESPECIAL",
 }
 
-# Provincia -> Comunidad Autonoma (el filtro "Localizacion" del CENDOJ va por CCAA)
+# Provincia -> Comunidad Autonoma (el filtro "Localizacion" del CENDOJ va por CCAA).
+# Los valores son el texto del panel del formulario (alli en mayusculas; has-text
+# no distingue). Ojo: el CENDOJ dice "BALEARES" y "CASTILLA LA MANCHA", sin
+# "Islas" ni guion; con esos nombres el filtro no se aplicaba.
 _PROVINCIA_A_CCAA = {
+    "ISLAS BALEARES": "Baleares", "CASTILLA-LA MANCHA": "Castilla La Mancha",
     "ALAVA": "País Vasco", "ARABA": "País Vasco", "GIPUZKOA": "País Vasco",
     "GUIPUZCOA": "País Vasco", "BIZKAIA": "País Vasco", "VIZCAYA": "País Vasco",
     "BILBAO": "País Vasco", "SAN SEBASTIAN": "País Vasco",
@@ -112,13 +116,13 @@ _PROVINCIA_A_CCAA = {
     "JAEN": "Andalucía", "HUELVA": "Andalucía",
     "ZARAGOZA": "Aragón", "HUESCA": "Aragón", "TERUEL": "Aragón",
     "ASTURIAS": "Asturias", "OVIEDO": "Asturias",
-    "BALEARES": "Islas Baleares", "ILLES BALEARS": "Islas Baleares", "PALMA": "Islas Baleares",
+    "BALEARES": "Baleares", "ILLES BALEARS": "Baleares", "PALMA": "Baleares",
     "LAS PALMAS": "Canarias", "PALMAS": "Canarias",
     "SANTA CRUZ DE TENERIFE": "Canarias", "TENERIFE": "Canarias",
     "CANTABRIA": "Cantabria", "SANTANDER": "Cantabria",
-    "ALBACETE": "Castilla-La Mancha", "CIUDAD REAL": "Castilla-La Mancha",
-    "CUENCA": "Castilla-La Mancha", "GUADALAJARA": "Castilla-La Mancha",
-    "TOLEDO": "Castilla-La Mancha",
+    "ALBACETE": "Castilla La Mancha", "CIUDAD REAL": "Castilla La Mancha",
+    "CUENCA": "Castilla La Mancha", "GUADALAJARA": "Castilla La Mancha",
+    "TOLEDO": "Castilla La Mancha",
     "AVILA": "Castilla y León", "BURGOS": "Castilla y León", "LEON": "Castilla y León",
     "PALENCIA": "Castilla y León", "SALAMANCA": "Castilla y León",
     "SEGOVIA": "Castilla y León", "SORIA": "Castilla y León",
