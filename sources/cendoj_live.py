@@ -39,6 +39,7 @@ import re
 from typing import Any
 
 from common.cendoj_ids import Ecli, Roj, normalizar_cita, roj_a_ecli
+from common.remoto import AVISO_CENDOJ, cendoj_bloqueado
 from common.texto import dir_destino, norm as _norm, parrafos, parrafos_con, slug as _slug, truncar
 
 BASE_FORM = "https://www.poderjudicial.es/search/indexAN.jsp"
@@ -744,6 +745,8 @@ async def buscar_sentencias(
     maximo: int = 10,
     orden: str = "",
 ) -> str:
+    if cendoj_bloqueado():
+        return AVISO_CENDOJ
     if not any([consulta, roj, ecli, ponente, norma, n_recurso, n_resolucion,
                 fecha_desde, fecha_hasta]):
         return ("Indica al menos un criterio: consulta (texto libre), ROJ, ECLI, "
@@ -816,6 +819,8 @@ async def leer_sentencia(
 ) -> str:
     """Texto de una resolucion (entero, una seccion o los parrafos con ciertas
     palabras). Se identifica por url (openDocument) o por ROJ/ECLI."""
+    if cendoj_bloqueado():
+        return AVISO_CENDOJ
     meta: dict = {}
     try:
         if not url and (roj or ecli):
@@ -887,6 +892,8 @@ async def descargar_sentencia(
     ruta: str = "",
 ) -> str:
     """Guarda la resolucion en disco (pdf, md o ambos) sin volcar el texto al chat."""
+    if cendoj_bloqueado():
+        return AVISO_CENDOJ
     meta: dict = {}
     try:
         if not url and (roj or ecli):

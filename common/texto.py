@@ -57,6 +57,13 @@ def slug(s: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "_", s).strip("_") or "documento"
 
 
+def _sin_disco() -> None:
+    """En modo remoto (HTTP) las tools no leen ni escriben ficheros del servidor."""
+    if os.environ.get("IURIS_SIN_DISCO") == "1":
+        raise ValueError("en modo remoto iuris no lee ni guarda ficheros del servidor; "
+                         "pasa el texto directamente")
+
+
 def ruta_permitida(ruta: str) -> str:
     """Valida una ruta que llega del modelo (para guardar o para leer un escrito).
 
@@ -66,6 +73,7 @@ def ruta_permitida(ruta: str) -> str:
     enlaces simbolicos), de modo que el servidor no lea ni escriba fuera de las
     carpetas de expedientes. Lanza ValueError si no se cumple.
     """
+    _sin_disco()
     if "\x00" in ruta:
         raise ValueError("ruta no valida")
     bruta = ruta.strip().strip('"')
@@ -91,6 +99,7 @@ def ruta_permitida(ruta: str) -> str:
 def dir_destino(ruta: str, por_defecto: str) -> str:
     """Carpeta donde guardar: `ruta` (carpeta o fichero) o `por_defecto`.
     La ruta se valida con ruta_permitida (lanza ValueError)."""
+    _sin_disco()
     if ruta:
         ruta = ruta_permitida(ruta)
         if os.path.isdir(ruta) or not os.path.splitext(ruta)[1]:

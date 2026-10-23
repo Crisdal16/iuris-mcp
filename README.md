@@ -84,6 +84,147 @@ Tras cambiar `server.py`, reinicia el MCP para que Claude vea las tools nuevas.
 | `IURIS_RAIZ` | Carpeta(s) (separadas por `;` en Windows) dentro de las cuales se permite guardar resoluciones y leer escritos. Sin ella se admite cualquier ruta local (nunca rutas de red UNC). |
 | `CENDOJ_HEADLESS=false` | Muestra el navegador del CENDOJ (depuración). |
 
+## Modo remoto (HTTP)
+
+El modo por defecto sigue siendo **stdio** (Claude Code; su configuración no cambia).
+Para que otro servicio propio consulte iuris por red —p. ej. el auditor de demandas
+de monitorio-ia a través del conector MCP de la API de Claude— hay un modo
+**streamable-http** con token Bearer obligatorio (código en `common/remoto.py`).
+
+```bash
+export IURIS_HTTP_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
+<venv>/python server.py --http                       # 127.0.0.1:8790, endpoint /mcp
+<venv>/python server.py --http --host 127.0.0.1 --port 8790 --tools auditor
+IURIS_TRANSPORT=http <venv>/python server.py         # equivalente a --http
+```
+
+| Variable / flag | Efecto |
+|---|---|
+| `IURIS_HTTP_TOKEN` | **Obligatoria.** Token(s) Bearer, separados por comas, de 32 caracteres o más. Sin ella el modo HTTP no arranca. Comparación en tiempo constante; sin token o con uno erróneo → `401`. |
+| `IURIS_TRANSPORT=http` / `--http` | Activa el modo HTTP. |
+| `IURIS_HTTP_HOST` / `--host` | Interfaz. Por defecto `127.0.0.1` (solo local; para exponerlo, proxy inverso con HTTPS). |
+| `IURIS_HTTP_PORT` / `--port` | Puerto. Por defecto `8790`. |
+| `IURIS_HTTP_PATH` / `--path` | Ruta del endpoint MCP. Por defecto `/mcp`. `GET /salud` responde `ok` sin token (para el proxy). |
+| `IURIS_TOOLS` / `--tools` | `auditor` (por defecto): `buscar_articulo`, `buscar_boe`, `leer_boe`, `buscar_por_cita`, `verificar_escrito`, `computo_plazo`, `calendario_laboral` y `continuar_lectura`. `todas`: todas salvo CENDOJ. O una lista separada por comas. |
+| `IURIS_HTTP_RPM` / `--rpm` | Peticiones por minuto y token (por defecto 60; `0` = sin límite). Al pasarse → `429` con `Retry-After`. |
+| `IURIS_ALLOWED_HOSTS` | Nombre(s) públicos con los que llega el proxy (`iuris.midominio.es`). La librería rechaza con `421` cualquier otro `Host` (anti DNS-rebinding). |
+| `IURIS_CENDOJ_REMOTO=uso-profesional-propio` / `--cendoj-uso-profesional-propio` | Ver «CENDOJ en remoto». |
+
+Además, en modo HTTP:
+- Las tools **no leen ni guardan ficheros del servidor** (`verificar_escrito` solo con
+  `texto`; nada de `ruta` ni `guardar_*`).
+- Respuestas JSON sin estado (`stateless_http`, `json_response`), cuerpo de petición
+  de 2 MB como máximo; los textos largos ya salen recortados por `common.lecturas`
+  (el resto con `continuar_lectura`).
+
+### CENDOJ en remoto: siempre fuera
+
+El aviso legal del CENDOJ no permite «la utilización de la base de datos para usos
+comerciales, ni la descarga masiva»; la reutilización comercial va por el
+procedimiento del CGPJ (Ley 37/2007, LRISP). Como el modo remoto lo usará un
+**producto de pago**, en HTTP las tools de CENDOJ (`buscar_sentencias`,
+`leer_sentencia`, `descargar_sentencia`, `cendoj_*`) quedan **siempre fuera, aunque se
+pida `todas`**, y `buscar_por_cita` / `verificar_escrito` tampoco consultan el CENDOJ
+(devuelven un aviso y el enlace a poderjudicial.es; las STS/SAP de un escrito salen
+«sin comprobar»). Solo se reactivan con `IURIS_CENDOJ_REMOTO=uso-profesional-propio`
+(o `--cendoj-uso-profesional-propio`), **exclusivamente para uso profesional propio,
+nunca detrás de monitorio-ia ni de otro servicio comercial**. Además necesitaría
+Chromium en el servidor.
+
+### Despliegue (ejemplos; no desplegado)
+
+Unidad systemd (`/etc/systemd/system/iuris-mcp.service`):
+
+```ini
+[Unit]
+Description=iuris-mcp (modo HTTP)
+After=network-online.target
+
+[Service]
+User=iuris
+WorkingDirectory=/opt/iuris-mcp
+EnvironmentFile=/etc/iuris-mcp.env
+ExecStart=/opt/iuris-mcp/.venv/bin/python server.py --http --host 127.0.0.1 --port 8790
+Restart=on-failure
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/iuris-mcp/.cache
+
+[Install]
+WantedBy=multi-user.target
+```
+
+`/etc/iuris-mcp.env` (permisos `600`, propietario root):
+
+```bash
+IURIS_HTTP_TOKEN=<token aleatorio de 32+ caracteres>
+IURIS_TOOLS=auditor
+IURIS_HTTP_RPM=60
+IURIS_ALLOWED_HOSTS=iuris.midominio.es
+```
+
+Proxy inverso con HTTPS — Caddy (`/etc/caddy/Caddyfile`, certificado automático):
+
+```caddy
+iuris.midominio.es {
+    reverse_proxy 127.0.0.1:8790
+}
+```
+
+o Nginx (con certbot):
+
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name iuris.midominio.es;
+    ssl_certificate     /etc/letsencrypt/live/iuris.midominio.es/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/iuris.midominio.es/privkey.pem;
+    client_max_body_size 2m;
+    location / {
+        proxy_pass http://127.0.0.1:8790;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_read_timeout 180s;
+        proxy_buffering off;
+    }
+}
+```
+
+### Cómo lo usa monitorio-ia (conector MCP de la API de Claude)
+
+El conector lo llama desde los servidores de Anthropic, así que la URL debe ser
+pública y con HTTPS (no sirve `127.0.0.1`). El token vive solo en el servidor de
+monitorio-ia (`IURIS_MCP_TOKEN`), nunca en el navegador:
+
+```ts
+const respuesta = await anthropic.beta.messages.create({
+  model: process.env.AUDITOR_MODEL!,      // el modelo que use el auditor
+  max_tokens: 4096,
+  betas: ["mcp-client-2025-11-20"],
+  mcp_servers: [{
+    type: "url",
+    url: "https://iuris.midominio.es/mcp",
+    name: "iuris",
+    authorization_token: process.env.IURIS_MCP_TOKEN,
+  }],
+  tools: [{
+    type: "mcp_toolset",
+    mcp_server_name: "iuris",
+    default_config: { enabled: false },   // lista blanca: solo lo que usa el auditor
+    configs: {
+      buscar_articulo: { enabled: true },
+      buscar_por_cita: { enabled: true },
+      verificar_escrito: { enabled: true },
+      computo_plazo: { enabled: true },
+    },
+  }],
+  messages: [{ role: "user", content: "Verifica en el BOE los artículos citados en esta demanda: …" }],
+});
+```
+
 ## Tests y evals
 
 ```bash

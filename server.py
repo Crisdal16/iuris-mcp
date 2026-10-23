@@ -1,6 +1,7 @@
 """iuris-mcp — servidor MCP local de fuentes juridicas oficiales espanolas y de la UE.
 
 Arranque (stdio):  <venv>/python server.py
+Modo remoto:       IURIS_HTTP_TOKEN=... <venv>/python server.py --http  (ver common/remoto.py)
 
 Tres regimenes de acceso (ver README):
   * API/servicio oficial abierto (BOE, Catastro, BORME, DGT, TEAC, TC, CELLAR):
@@ -607,7 +608,47 @@ def leer_resolucion_teac(numero_rg: str) -> str:
     return teac.leer_resolucion_teac(numero_rg)
 
 
-def main() -> None:
+def _argumentos(argv: list[str] | None = None):
+    import argparse
+
+    p = argparse.ArgumentParser(
+        prog="server.py",
+        description="iuris-mcp. Sin argumentos: stdio (Claude Code). --http: modo remoto "
+                    "streamable-http con token Bearer (IURIS_HTTP_TOKEN obligatorio).")
+    p.add_argument("--http", action="store_true",
+                   help="modo HTTP (tambien con IURIS_TRANSPORT=http)")
+    p.add_argument("--host", help="interfaz (por defecto 127.0.0.1; IURIS_HTTP_HOST)")
+    p.add_argument("--port", type=int, help="puerto (por defecto 8790; IURIS_HTTP_PORT)")
+    p.add_argument("--path", help="ruta del endpoint (por defecto /mcp; IURIS_HTTP_PATH)")
+    p.add_argument("--tools", help="'auditor' (por defecto), 'todas' o lista separada por "
+                                   "comas (IURIS_TOOLS)")
+    p.add_argument("--rpm", type=int, help="peticiones por minuto y token; 0 = sin limite "
+                                           "(IURIS_HTTP_RPM, por defecto 60)")
+    p.add_argument("--cendoj-uso-profesional-propio", dest="cendoj_propio", action="store_true",
+                   default=None,
+                   help="activa CENDOJ en remoto SOLO para uso profesional propio (su aviso legal "
+                        "no permite uso comercial ni descarga masiva); equivale a "
+                        "IURIS_CENDOJ_REMOTO=uso-profesional-propio")
+    return p.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> None:
+    import os
+    import sys
+
+    args = _argumentos(argv)
+    if args.http or os.environ.get("IURIS_TRANSPORT", "").strip().lower() in ("http", "streamable-http"):
+        from common import remoto
+
+        try:
+            cfg = remoto.config_desde_entorno(host=args.host, port=args.port, path=args.path,
+                                              tools=args.tools, rpm=args.rpm,
+                                              cendoj_propio=args.cendoj_propio)
+            remoto.servir(mcp, cfg)
+        except remoto.ErrorConfiguracion as e:
+            print(f"iuris-mcp: {e}", file=sys.stderr)
+            raise SystemExit(2) from None
+        return
     mcp.run("stdio")
 
 

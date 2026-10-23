@@ -49,6 +49,38 @@ venv de Windows (ya instalados: `playwright 1.63.0`, Chromium 153 en
 Tras cualquier cambio en `server.py` hay que **reiniciar el MCP** (o la app) para
 que Claude vea las tools nuevas.
 
+## Modo remoto (HTTP) — añadido 2026-10-23
+
+Para que monitorio-ia (auditor de demandas, vía conector MCP de la API de Claude,
+beta `mcp-client-2025-11-20`) verifique en el BOE los artículos citados. **stdio sigue
+siendo el modo por defecto** y el registro de Claude Code no cambia. Detalle completo
+(variables, systemd, Caddy/Nginx, snippet del conector) en README → «Modo remoto (HTTP)».
+
+- Arranque: `IURIS_HTTP_TOKEN=<32+ caracteres> python server.py --http`
+  (o `IURIS_TRANSPORT=http`). Escucha en `127.0.0.1:8790/mcp`; el 8765 lo usa otra
+  app local. Sin token no arranca; sin cabecera Bearer válida → 401; >60 pet/min por
+  token → 429. `GET /salud` sin token para el proxy.
+- Código: `common/remoto.py` (middleware Bearer con `hmac.compare_digest`, límite por
+  minuto, perfil de tools, `TransportSecuritySettings` con `IURIS_ALLOWED_HOSTS`).
+  Usa `MCPServer.streamable_http_app(stateless_http=True, json_response=True)` de
+  `mcp 2.1.1`.
+- Perfil `IURIS_TOOLS=auditor` por defecto: buscar_articulo, buscar_boe, leer_boe,
+  buscar_por_cita, verificar_escrito, computo_plazo, calendario_laboral,
+  continuar_lectura. `todas` = todas menos CENDOJ.
+- En remoto las tools no leen ni escriben ficheros del servidor (`IURIS_SIN_DISCO=1`).
+- **CENDOJ SIEMPRE fuera en remoto.** Aviso legal del CENDOJ: «No está permitida la
+  utilización de la base de datos para usos comerciales, ni la descarga masiva»; la
+  reutilización comercial va por el procedimiento del CGPJ (LRISP). El modo remoto lo
+  usará un producto de pago, así que `buscar_sentencias`, `leer_sentencia`,
+  `descargar_sentencia` y `cendoj_*` quedan fuera aunque se pida `todas`, y
+  `buscar_por_cita` / `verificar_escrito` no consultan el CENDOJ (`IURIS_SIN_CENDOJ=1`).
+  Solo se reactivan con `IURIS_CENDOJ_REMOTO=uso-profesional-propio` o
+  `--cendoj-uso-profesional-propio`: **solo uso profesional propio, nunca para
+  monitorio-ia ni otro servicio comercial.**
+- Tests: `tests/test_remoto.py` (sin red). Prueba real hecha en local el 2026-10-23
+  (cliente streamable-http de la librería: 401 sin token, lista de 8 tools,
+  `buscar_articulo(LEC, 813)` correcto). **No desplegado en ningún VPS.**
+
 ## Instalación / tests
 
 ```bash

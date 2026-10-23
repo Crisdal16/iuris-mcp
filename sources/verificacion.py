@@ -15,6 +15,7 @@ import re
 
 from common import citas as _citas
 from common.citas import Cita
+from common.remoto import AVISO_CENDOJ, cendoj_bloqueado
 from sources import boe, cendoj, cendoj_live, dgt, normativa_ue, tc, teac, tjue
 
 # Prefijos con los que las fuentes indican que algo NO se ha encontrado / ha fallado.
@@ -58,6 +59,8 @@ async def abrir(c: Cita, seccion: str = "todo", palabras_clave: str = "",
         sec = seccion if seccion in ("todo", "fallo") else "todo"
         return await run(tjue.leer_tjue, c.ref, seccion=sec, palabras_clave=palabras_clave,
                          max_chars=max_chars)
+    if c.tipo in ("cendoj", "id_cendoj") and cendoj_bloqueado():
+        return AVISO_CENDOJ
     if c.tipo == "cendoj":
         return await cendoj_live.leer_sentencia(
             roj=c.extra.get("roj", ""), ecli=c.extra.get("ecli", ""), seccion=seccion,
@@ -151,6 +154,11 @@ async def _verificar_una(c: Cita, en_linea: bool, incluir_texto: bool) -> dict:
     if c.tipo == "id_cendoj":
         res["estado"] = "ℹ ID INTERNO"
         res["detalle"] = "Identificador interno del CENDOJ; en un escrito se cita por ROJ/ECLI."
+        return res
+    if c.tipo == "cendoj" and cendoj_bloqueado():
+        res["estado"] = "… SIN COMPROBAR"
+        res["detalle"] = ("Formato valido. CENDOJ no se consulta en el modo remoto (su aviso "
+                          "legal no permite el uso comercial): compruebala en poderjudicial.es.")
         return res
     if c.tipo == "cendoj" and not en_linea:
         res["estado"] = "… SIN COMPROBAR"
