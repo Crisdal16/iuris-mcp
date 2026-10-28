@@ -31,7 +31,7 @@ import re
 import unicodedata
 
 import pymupdf
-from selectolax.parser import HTMLParser
+from common._selectolax import HTMLParser
 
 from common.http import get
 from common.lecturas import recortar

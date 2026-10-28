@@ -17,7 +17,7 @@ from __future__ import annotations
 import datetime as dt
 import re
 
-from selectolax.parser import HTMLParser
+from common._selectolax import HTMLParser
 
 from common.http import get, get_json
 

@@ -84,7 +84,7 @@ def test_norm_y_slug():
 
 
 def test_texto_de_html_limpia():
-    from selectolax.parser import HTMLParser
+    from common._selectolax import HTMLParser
     t = HTMLParser("<div><script>x</script><p>Hola&nbsp; mundo</p>\n\n<p>  Dos </p></div>")
     assert texto_de_html(t.css_first("div")) == "Hola mundo\nDos"
 

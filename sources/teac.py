@@ -137,7 +137,7 @@ def _fecha(f: str) -> str:
 
 def _parsear_lista(html: str) -> tuple[int | None, list[dict]]:
     """De criterios.aspx a (total, [ {id, titulo, rg, asunto} ])."""
-    from selectolax.parser import HTMLParser
+    from common._selectolax import HTMLParser
     doc = HTMLParser(html)
     total = None
     m = re.search(r"([\d.]+)\s+resultados", html)
@@ -231,7 +231,7 @@ def buscar_doctrina_teac(consulta: str = "", frase: str = "", numero_rg: str = "
 
 def _parsear_criterio(html: str) -> dict:
     """De criterio.aspx a un dict con los campos del criterio."""
-    from selectolax.parser import HTMLParser
+    from common._selectolax import HTMLParser
     doc = HTMLParser(html)
     out: dict[str, str] = {}
     mapa = {

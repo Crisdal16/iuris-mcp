@@ -23,7 +23,7 @@ import re
 from typing import Any
 
 import httpx
-from selectolax.parser import HTMLParser
+from common._selectolax import HTMLParser
 
 from common.cendoj_ids import Ecli, normalizar_cita
 from common.texto import dir_destino, parrafos_con, slug, texto_de_html, truncar, norm

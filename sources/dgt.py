@@ -33,7 +33,7 @@ import re
 import ssl
 
 import httpx
-from selectolax.parser import HTMLParser
+from common._selectolax import HTMLParser
 
 from common.http import describir_error
 from common.lecturas import recortar
