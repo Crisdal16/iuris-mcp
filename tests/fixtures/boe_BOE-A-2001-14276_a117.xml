@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<response>
+  <status>
+    <code>200</code>
+    <text>ok</text>
+  </status>
+  <data>
+    <bloque id="a117" tipo="precepto" titulo="Artículo 117">
+      <version id_norma="BOE-A-2001-14276" fecha_publicacion="20010724" fecha_vigencia="20010725">
+        <p class="articulo">Artículo 117. Calificación de las infracciones.</p>
+        <p class="parrafo">1. Las citadas infracciones se calificarán reglamentariamente de leves, menos graves, graves o muy graves, atendiendo a su repercusión en el orden y aprovechamiento del dominio público hidráulico, a su trascendencia por lo que respecta a la seguridad de las personas y bienes y a las circunstancias del responsable, su grado de malicia, participación y beneficio obtenido, así como al deterioro producido en la calidad del recurso, pudiendo ser sancionadas con las siguientes multas:</p>
+        <p class="parrafo">Infracciones leves, multa de hasta 6.010,12 euros (1.000.000 de pesetas).</p>
+        <p class="parrafo">Infracciones menos graves, multa de 6.010,13 a 30.050,61 euros (1.000.001 a 5.000.000 de pesetas).</p>
+        <p class="parrafo">Infracciones graves, multa de 30.050,62 a 300.506,06 euros (5.000.001 a 50.000.000 de pesetas).</p>
+        <p class="parrafo">Infracciones muy graves, multa de 300.506,06 a 601.012,10 euros (50.000.001 a 100.000.000 de pesetas).</p>
+        <p class="parrafo">2. La sanción de las infracciones leves y menos graves corresponderá al Organismo de cuenca. En relación con las primeras se establecerá reglamentariamente un procedimiento abreviado y sumario, respetando los principios establecidos en el capítulo II del Título IX de la Ley 30/1992, de 26 de noviembre, de Régimen Jurídico de las Administraciones Públicas y del Procedimiento Administrativo Común. Será competencia del Ministro de Medio Ambiente la sanción de las infracciones graves y quedará reservada al Consejo de Ministros la imposición de multas por infracciones muy graves.</p>
+        <p class="parrafo">3. El Gobierno podrá, mediante Decreto, proceder a la actualización del importe de las sanciones, previsto en el apartado 1 de este artículo.</p>
+      </version>
+      <version id_norma="BOE-A-2001-23479" fecha_publicacion="20011212" fecha_vigencia="20020101">
+        <p class="articulo">Artículo 117. Calificación de las infracciones.</p>
+        <p class="parrafo">1. Las citadas infracciones se calificarán reglamentariamente de leves, menos graves, graves o muy graves, atendiendo a su repercusión en el orden y aprovechamiento del dominio público hidráulico, a su trascendencia por lo que respecta a la seguridad de las personas y bienes y a las circunstancias del responsable, su grado de malicia, participación y beneficio obtenido, así como al deterioro producido en la calidad del recurso, pudiendo ser sancionadas con las siguientes multas:</p>
+        <p class="parrafo">Infracciones leves, multa de hasta 6.010,12 euros (1.000.000 de pesetas).</p>
+        <p class="parrafo">Infracciones menos graves, multa desde 6.010,13 a 30.050,61 euros (1.000.001 a 5.000.000 de pesetas).</p>
+        <p class="parrafo">Infracciones graves, multa de 30.050,62 a 300.506,05 euros (de 5.000.001a 50.000.000 de pesetas).</p>
+        <p class="parrafo">Infracciones muy graves, multa de 300.506,06 a 601.012,10 euros (de 50.000.001 a 100.000.000 de pesetas).</p>
+        <p class="parrafo">2. La sanción de las infracciones leves y menos graves corresponderá al Organismo de cuenca. En relación con las primeras se establecerá reglamentariamente un procedimiento abreviado y sumario, respetando los principios establecidos en el capítulo II del Título IX de la Ley 30/1992, de 26 de noviembre, de Régimen Jurídico de las Administraciones Públicas y del Procedimiento Administrativo Común. Será competencia del Ministro de Medio Ambiente la sanción de las infracciones graves y quedará reservada al Consejo de Ministros la imposición de multas por infracciones muy graves.</p>
+        <p class="parrafo">3. El Gobierno podrá, mediante Decreto, proceder a la actualización del importe de las sanciones, previsto en el apartado 1 de este artículo.</p>
+        <blockquote>
+          <p class="nota_pie">Se convierten a euros las cuantías contempladas en el apartado 1 por el art. 1.1 Resolución de 21 de noviembre de 2001. <a class="refPost">Ref. BOE-A-2001-23479</a>.</p>
+        </blockquote>
+      </version>
+      <version id_norma="BOE-A-2012-5989" fecha_publicacion="20120505" fecha_vigencia="20120506">
+        <p class="articulo">Artículo 117. Calificación de las infracciones.</p>
+        <p class="parrafo">1. Las citadas infracciones se calificarán reglamentariamente de leves, menos graves, graves, o muy graves, atendiendo a su repercusión en el orden y aprovechamiento del dominio público hidráulico, a su trascendencia por lo que respecta a la seguridad de las personas y bienes y a las circunstancias del responsable, su grado de malicia, participación y beneficio obtenido, así como al deterioro producido en la calidad del recurso, pudiendo ser sancionadas con las siguientes multas:</p>
+        <p class="parrafo_2">Infracciones leves, multa de hasta 10.000,00 euros.</p>
+        <p class="parrafo">Infracciones menos graves, multa de 10.000,01 a 50.000,00 euros.</p>
+        <p class="parrafo">Infracciones graves, multa de 50.000,01 a 500.000,00 euros.</p>
+        <p class="parrafo">Infracciones muy graves, multa de 500.000,01 a 1.000.000,00 euros.</p>
+        <p class="parrafo">2. Con carácter general, para la valoración del daño en el dominio público hidráulico y las obras hidráulicas se ponderará su valor económico. En el caso de daños en la calidad del agua, se tendrá en cuenta el coste del tratamiento que hubiera sido necesario para evitar la contaminación causada por el vertido y la peligrosidad del mismo. Todo ello, de acuerdo con lo que reglamentariamente se establezca.</p>
+        <p class="parrafo">3. La sanción de las infracciones leves y menos graves corresponderá al Organismo de cuenca. En relación con las primeras se establecerá reglamentariamente un procedimiento abreviado y sumario, respetando los principios establecidos en el capítulo II del Título IX de la Ley 30/1992, de 26 de noviembre, de Régimen Jurídico de las Administraciones Públicas y del Procedimiento Administrativo Común. Será competencia del Ministro de Medio Ambiente la sanción de las infracciones graves y quedará reservada al Consejo de Ministros la imposición de multas por infracciones muy graves.</p>
+        <p class="parrafo">4. El Gobierno podrá, mediante Decreto, proceder a la actualización del importe de las sanciones, previsto en el apartado 1 de este artículo.</p>
+        <blockquote>
+          <p class="nota_pie">Se modifica por el art. 1.5 a 7 del Real Decreto-ley 17/2012, de 4 de mayo. <a class="refPost">Ref. BOE-A-2012-5989</a>.</p>
+          <p class="nota_pie">Se convierten a euros las cuantías contempladas en el apartado 1 por el art. 1.1 Resolución de 21 de noviembre de 2001. <a class="refPost">Ref. BOE-A-2001-23479</a></p>
+        </blockquote>
+      </version>
+      <version id_norma="BOE-A-2012-15337" fecha_publicacion="20121220" fecha_vigencia="20121221">
+        <p class="articulo">Artículo 117. Calificación de las infracciones.</p>
+        <p class="parrafo">1. Las citadas infracciones se calificarán reglamentariamente de leves, menos graves, graves, o muy graves, atendiendo a su repercusión en el orden y aprovechamiento del dominio público hidráulico, a su trascendencia por lo que respecta a la seguridad de las personas y bienes y a las circunstancias del responsable, su grado de malicia, participación y beneficio obtenido, así como al deterioro producido en la calidad del recurso, pudiendo ser sancionadas con las siguientes multas:</p>
+        <p class="parrafo_2">Infracciones leves, multa de hasta 10.000,00 euros.</p>
+        <p class="parrafo">Infracciones menos graves, multa de 10.000,01 a 50.000,00 euros.</p>
+        <p class="parrafo">Infracciones graves, multa de 50.000,01 a 500.000,00 euros.</p>
+        <p class="parrafo">Infracciones muy graves, multa de 500.000,01 a 1.000.000,00 euros.</p>
+        <p class="parrafo_2">2. Con carácter general, para la valoración del daño en el dominio público hidráulico y las obras hidráulicas se ponderará su valor económico. En el caso de daños en la calidad del agua, se tendrá en cuenta el coste del tratamiento que hubiera sido necesario para evitar la contaminación causada por el vertido y la peligrosidad del mismo. Todo ello, de acuerdo con lo que reglamentariamente se establezca.</p>
+        <p class="parrafo">3. La sanción de las infracciones leves y menos graves corresponderá al Organismo de cuenca. En relación con las primeras se establecerá reglamentariamente un procedimiento abreviado y sumario, respetando los principios establecidos en el capítulo II del Título IX de la Ley 30/1992, de 26 de noviembre, de Régimen Jurídico de las Administraciones Públicas y del Procedimiento Administrativo Común. Será competencia del Ministro de Medio Ambiente la sanción de las infracciones graves y quedará reservada al Consejo de Ministros la imposición de multas por infracciones muy graves.</p>
+        <p class="parrafo">4. El Gobierno podrá, mediante Decreto, proceder a la actualización del importe de las sanciones, previsto en el apartado 1 de este artículo.</p>
+        <blockquote>
+          <p class="nota_pie">Se modifica por el art. 1.8 a 10 de la Ley 11/2012, de 19 de diciembre. <a class="refPost">Ref. BOE-A-2012-15337</a>.</p>
+          <p class="nota_pie">Se modifica por el art. 1.5 a 7 del Real Decreto-ley 17/2012, de 4 de mayo. <a class="refPost">Ref. BOE-A-2012-5989</a>.</p>
+          <p class="nota_pie">Se convierten a euros las cuantías contempladas en el apartado 1 por el art. 1.1 Resolución de 21 de noviembre de 2001. <a class="refPost">Ref. BOE-A-2001-23479</a></p>
+        </blockquote>
+      </version>
+    </bloque>
+  </data>
+</response>
