@@ -50,7 +50,7 @@ _RE_ROJ = re.compile(
 # Normas que pueden acompanar a un articulo. El orden importa: lo mas largo primero.
 _SIGLAS = (
     "LECRIM", "LOPDGDD", "TRLGDCU", "LGDCU", "LOPJM", "LOREG", "LOPJ", "LOTC", "LJCA", "LRJS",
-    "LRJSP", "LPAC", "LGSS", "LCSP", "LBRL", "LIRPF", "LIVA", "TRLC", "LSC", "LGT", "LAU",
+    "LRJSP", "LPAC", "LGSS", "LCSP", "LBRL", "LIRPF", "LIVA", "TRLC", "TRLA", "RDPH", "LSC", "LGT", "LAU",
     "LPH", "LEC", "LRC", "LJV", "LIS", "CCOM", "LH", "LC", "CC", "CP", "CE", "ET",
     "RGPD", "GDPR",
 )
@@ -94,6 +94,7 @@ _RE_NORMA_EN_RESTO = re.compile(
 _RE_HUECO = re.compile(
     r"^(?:[OA]\b)?"                    # el 'º' de '2º' llega como 'O' tras normalizar
     r"[\s,.;:()ºª°\d\-]*(?:(?<=\d)[OA]\b[\s,.]*)?"
+    r"(?:[A-Z]\)[\s,.]*(?:(?:Y|E|O)\s+[A-Z]\)[\s,.]*)*)?"   # letra: '315 c) y d) del RDPH'
     r"(?:(?:APARTADOS?|APDOS?\.?|PARRAFOS?|LETRAS?|NUMEROS?|N\.?[O°º]\.?|ORDINAL|INCISO|PUNTO)"
     r"\s*[\w.ºª°]{1,6}\)?[\s,.]*(?:(?:Y|E)\s+[\w.ºª°]{1,6}\)?[\s,.]*)?)*"
     r"(?:DE\s+LA|DEL|DE|EN\s+LA|EN\s+EL)?\s*(?:VIGENTE|CITAD[OA]|REFERID[OA])?\s*$"

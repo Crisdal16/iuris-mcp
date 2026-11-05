@@ -60,6 +60,9 @@ LEYES: dict[str, str] = {
     "LJV": "BOE-A-2015-7391",          # Ley 15/2015 Jurisdiccion Voluntaria
     "LBRL": "BOE-A-1985-5392",         # Ley 7/1985 Bases de Regimen Local
     "TRLC": "BOE-A-2020-4859",         # RDLeg 1/2020 Ley Concursal
+    # Aguas (CHS). Verificados 2026-11-05 con resolver_por_numero.
+    "TRLA": "BOE-A-2001-14276",        # RDLeg 1/2001 Texto refundido de la Ley de Aguas
+    "RDPH": "BOE-A-1986-10638",        # RD 849/1986 Reglamento del Dominio Publico Hidraulico
     "GDPR": "DOUE-L-2016-80807",       # RGPD (referencia UE; via otra ruta)
     "RGPD": "DOUE-L-2016-80807",
 }
@@ -78,6 +81,8 @@ NOMBRES = {
     "ley de propiedad horizontal": "LPH",
     "ley de sociedades de capital": "LSC",
     "ley hipotecaria": "LH",
+    "ley de aguas": "TRLA", "texto refundido de la ley de aguas": "TRLA",
+    "reglamento del dominio publico hidraulico": "RDPH",
 }
 
 _RE_BOE_ID = re.compile(r"^BOE-A-\d{4}-\d+$", re.IGNORECASE)
