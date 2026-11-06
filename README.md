@@ -59,6 +59,31 @@ que guardan una resolución en la carpeta que indiques).
 3. **Humano en el bucle** (REGCON, Registro Mercantil, BOP para ordenanzas): el
    servidor prepara la búsqueda oficial y el enlace; el acceso lo haces tú.
 
+## Rotación de IPs (opcional, apagada por defecto)
+
+El CENDOJ limita por IP las descargas seguidas; tras unas cuantas en poco tiempo
+empieza a pedir captcha o a responder `403`, y una IP bloqueada deja la consulta
+a medias. Para quien trabaja con el CENDOJ a diario (escritos, seguimiento de una
+jurisdicción, revisión de jurisprudencia) el repo incluye un pool de IPs propio:
+
+- `proxies.txt` en la raiz (NO se publica; en `.gitignore`), una IP por linea:
+  `ip:puerto` · `ip:puerto:usuario:clave` · `http://usuario:clave@ip:puerto`.
+- Activacion: `IURIS_ROTACION=true`. Busquedas y descargas salen entonces por IPs
+  del pool; si una IP falla (403/429/503, timeout, proxy caido) entra en cooldown
+  5 min y la operacion sigue con la siguiente, hasta `IURIS_ROTACION_MAX` IPs
+  por operacion (5 por defecto, max 99). Recuperacion automatica: la IP revive
+  sola; las que acumulan fallos se re-testean a los 30 min.
+- Diagnostico: la tool `estado` muestra el pool (activas / cooldown / muertas /
+  peticiones / exito). `python check_proxies.py` valida el fichero antes de
+  empezar (tabla VIVA/CAIDA + latencia).
+- Sin rotacion, todo funciona igual que siempre con la IP propia: la variable
+  es un interruptor, no un requisito.
+
+Diseno en `common/rotacion.py` + `common/ip_rotator/` (stdlib + httpx, sin
+dependencias nuevas). La descarga sigue siendo documento a documento: el pool
+reparte la carga de una consulta profesional, no sustituye al captcha (cuando
+aparece, las tools devuelven el enlace oficial para abrirlo a mano).
+
 ## Instalación
 
 ```bash
@@ -67,7 +92,8 @@ python -m venv <venv>
 <venv>/python -m playwright install chromium   # solo para buscar en el CENDOJ
 ```
 
-En Windows el venv vive fuera de OneDrive (ver `FICHA-iuris-mcp.md`).
+En Windows el venv vive fuera de OneDrive (ver `FICHA-iuris-mcp.md`). La guia
+completa paso a paso (PC y nube) esta en `INSTALAR.md`.
 
 Registro en Claude Code:
 
@@ -77,12 +103,28 @@ claude mcp add iuris --scope user -- "<venv>/python" "<ruta>/server.py"
 
 Tras cambiar `server.py`, reinicia el MCP para que Claude vea las tools nuevas.
 
+### Contenedor o nube (Claude Code remote)
+
+En contenedores la version de Playwright que instala pip puede no coincidir con el
+build de Chromium incluido en la imagen (`Executable doesn't exist at
+/opt/pw-browsers/chromium_headless_shell-...`). Solucion sin tocar nada del sistema:
+
+```bash
+export IURIS_CHROMIUM_PATH=/opt/pw-browsers/chromium   # binario que SI existe
+```
+
+`CendojBrowser` lo usa automaticamente. En un PC normal no se define.
+
 ### Variables de entorno
 
 | Variable | Efecto |
 |---|---|
 | `IURIS_RAIZ` | Carpeta(s) (separadas por `;` en Windows) dentro de las cuales se permite guardar resoluciones y leer escritos. Sin ella se admite cualquier ruta local (nunca rutas de red UNC). |
-| `CENDOJ_HEADLESS=false` | Muestra el navegador del CENDOJ (depuración). |
+| `CENDOJ_HEADLESS=false` | Muestra el navegador del CENDOJ (depuracion). |
+| `IURIS_CHROMIUM_PATH` | Binario Chromium alternativo para contenedores (ver arriba). |
+| `IURIS_ROTACION=true` | Activa la rotacion de IPs para el CENDOJ (ver seccion siguiente; apagada por defecto). |
+| `IURIS_PROXIES` | Ruta del pool de proxies (por defecto `proxies.txt` en la raiz). |
+| `IURIS_ROTACION_MAX` | IPs distintas a probar por operacion (5 por defecto, max 99). |
 
 ## Modo remoto (HTTP)
 

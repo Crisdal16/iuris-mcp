@@ -22,7 +22,7 @@ import logging
 from mcp.server import MCPServer
 from mcp.types import ToolAnnotations
 
-from common import lecturas
+from common import lecturas, rotacion
 from sources import (
     boe,
     boletines,
@@ -111,7 +111,7 @@ def herramienta(titulo: str, *, red: bool = True, escribe: bool = False):
 
 @herramienta("Estado del servidor", red=False)
 def estado() -> str:
-    """Diagnostico: version, fuentes y lista de herramientas disponibles."""
+    """Diagnostico: version, fuentes, herramientas disponibles y rotacion de IPs."""
     tools = sorted(mcp._tool_manager.list_tools(), key=lambda t: t.name)
     lineas = [f"iuris-mcp {mcp.version} — {len(tools)} herramientas", ""]
     for t in tools:
@@ -120,6 +120,11 @@ def estado() -> str:
         if len(frase) > 120:
             frase = frase[:117].rsplit(" ", 1)[0] + "…"
         lineas.append(f"  • {t.name}: {frase}")
+    linea_rot = rotacion.linea_estado()
+    if linea_rot:
+        lineas += ["", linea_rot]
+    else:
+        lineas += ["", "Rotacion de IPs: apagada (activar con IURIS_ROTACION=true y proxies.txt)."]
     lineas += ["", "Fuentes: BOE (API datos abiertos), CENDOJ (navegador para buscar, descarga "
                "directa para leer), TC (hj.tribunalconstitucional.es), TJUE y normativa UE "
                "(CELLAR), DGT (PETETE), TEAC (DYCTEA), Catastro (OVC), BORME, REGCON, "

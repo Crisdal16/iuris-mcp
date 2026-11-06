@@ -41,6 +41,7 @@ from typing import Any
 
 from common.cendoj_ids import Ecli, Roj, normalizar_cita, roj_a_ecli
 from common.http import describir_error
+from common import rotacion
 from common.remoto import AVISO_CENDOJ, cendoj_bloqueado
 from common.texto import dir_destino, norm as _norm, parrafos, parrafos_con, slug as _slug, truncar
 
@@ -373,6 +374,7 @@ class CendojBrowser:
         self.browser = None
         self.ctx = None
         self.page = None
+        self.proxy_id = None  # IP de salida de esta sesion, si hay rotacion
 
     async def __aenter__(self) -> "CendojBrowser":
         try:
@@ -382,11 +384,22 @@ class CendojBrowser:
                 "Playwright no esta instalado en el entorno del servidor. Instala con: "
                 "python -m pip install playwright && python -m playwright install chromium"
             ) from e
+        # Rotacion de IPs (opcional, IURIS_ROTACION=true): un proxy del pool por
+        # sesion de navegador. Sin rotacion: la IP propia, como siempre.
+        proxy = None
+        if rotacion.activa():
+            px = rotacion.proxy_para_navegador()
+            if px:
+                proxy = {"server": px["server"]}
+                if px.get("username"):
+                    proxy["username"] = px["username"]
+                    proxy["password"] = px.get("password", "")
+                self.proxy_id = px["id"]
         self._pw = await async_playwright().start()
         try:
             self.browser = await self._pw.chromium.launch(
                 headless=self.headless, executable_path=_ejecutable_chromium(),
-                args=["--no-sandbox", "--disable-web-security"]
+                args=["--no-sandbox", "--disable-web-security"], proxy=proxy,
             )
         except Exception as e:
             await self._pw.stop()
@@ -408,6 +421,12 @@ class CendojBrowser:
         finally:
             if self._pw:
                 await self._pw.stop()
+
+    def reportar(self, ok: bool, detalle: str = "") -> None:
+        """Alimenta el auto-recovery del pool con el resultado de esta sesion.
+        Sin rotacion (proxy_id None) no hace nada: comportamiento de siempre."""
+        if self.proxy_id:
+            rotacion.reportar(self.proxy_id, ok, detalle)
 
     async def _cerrar_modal(self) -> None:
         try:
@@ -750,13 +769,40 @@ class CendojBrowser:
 # Obtencion de un documento (bytes + texto), con cache y fallbacks
 # ---------------------------------------------------------------------------
 
-async def obtener_documento(url_ficha: str) -> tuple[bytes | None, str]:
-    """Devuelve (pdf_bytes, texto). Primero cache; luego httpx directo; por
-    ultimo navegador. pdf_bytes puede ser None si solo habia texto en cache.
+async def _con_reintentos(fcn) -> Any:
+    """Ejecuta fcn(br) abriendo un navegador por intento.
 
-    Si el CENDOJ responde con el captcha de descargas masivas, se corta aqui
-    (ErrorCaptcha): el fallback del navegador chocaria con el mismo control y
-    el mensaje honesto llega antes.
+    Sin rotacion: un solo intento (comportamiento de siempre). Con rotacion
+    activa, si el intento falla — control anti-bot, timeout o proxy caido —
+    se reporta el fallo y se reintenta con OTRA IP del pool hasta
+    IURIS_ROTACION_MAX veces. El ultimo error se re-lanza para que quien
+    llama lo trate con los mismos mensajes de siempre.
+    """
+    intentos = rotacion.max_intentos()
+    ultimo: Exception | None = None
+    for i in range(intentos):
+        async with CendojBrowser() as br:
+            try:
+                res = await fcn(br)
+                br.reportar(True)
+                return res
+            except Exception as e:
+                br.reportar(False, f"{type(e).__name__}: {e}"[:200])
+                ultimo = e
+                if i + 1 >= intentos:
+                    raise
+                continue
+    raise ultimo or RuntimeError("sin intentos")  # inalcanzable; silencia el type checker
+
+
+async def obtener_documento(url_ficha: str) -> tuple[bytes | None, str]:
+    """Devuelve (pdf_bytes, texto). Orden: cache -> descarga directa (IP propia)
+    -> descarga por el pool de IPs (si IURIS_ROTACION=true) -> navegador.
+    pdf_bytes puede ser None si solo habia texto en cache.
+
+    Sin rotacion, el captcha de descargas masivas se informa al momento
+    (ErrorCaptcha) sin insistir. Con rotacion, el pool sigue con su siguiente IP
+    y solo si se agota se informa igual: el enlace oficial llega siempre.
     """
     clave = _clave_doc(url_ficha)
     texto = _cache_get("txt:" + clave)
@@ -769,11 +815,29 @@ async def obtener_documento(url_ficha: str) -> tuple[bytes | None, str]:
             try:
                 data = await _descargar_pdf_httpx(directa)
             except ErrorCaptcha:
-                raise
+                if not rotacion.activa():
+                    raise
+                _aviso("captcha en la IP propia; con rotacion activa se prueba el pool")
+        if not data and rotacion.activa():
+            data = await rotacion.descargar_con_rotacion(directa or url_ficha,
+                                                         headers=_HEADERS)
         if not data:
             async with CendojBrowser() as br:
-                real, cookies = await br.resolver_pdf(url_ficha)
-                data = await _descargar_pdf_httpx(real, cookies)
+                try:
+                    real, cookies = await br.resolver_pdf(url_ficha)
+                    data = await _descargar_pdf_httpx(real, cookies)
+                    br.reportar(bool(data),
+                                "" if data else "resolver_pdf: sin enlace al PDF")
+                except ErrorCaptcha:
+                    br.reportar(False, "captcha al resolver la ficha")
+                    if not rotacion.activa():
+                        raise
+                    _aviso("captcha tambien por navegador; se agoto el pool o la "
+                           "IP propia; se informa con el enlace oficial")
+                    raise
+                except Exception:
+                    br.reportar(False, "fallo resolviendo la ficha")
+                    raise
         if not data:
             raise RuntimeError(
                 f"No se pudo descargar el PDF de {url_ficha}. Causas habituales: el CENDOJ "
@@ -807,7 +871,8 @@ async def _localizar_por_cita(roj: str, ecli: str) -> dict | None:
         ecli_val = str(obj)
     else:
         roj_val, ecli_val = roj.strip(), ecli.strip()
-    async with CendojBrowser() as br:
+
+    async def _busqueda(br) -> dict | None:
         res = (await br.buscar(roj=roj_val, ecli=ecli_val)
                if (roj_val or ecli_val) else {"resultados": []})
         if res["resultados"]:
@@ -823,7 +888,9 @@ async def _localizar_por_cita(roj: str, ecli: str) -> dict | None:
                     f"{tarjeta.get('roj') or '?'}). Comprueba que es la resolucion "
                     "que buscabas.")
                 return tarjeta
-    return None
+        return None
+
+    return await _con_reintentos(_busqueda)
 
 
 # ---------------------------------------------------------------------------

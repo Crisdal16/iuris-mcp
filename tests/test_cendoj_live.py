@@ -320,6 +320,8 @@ def test_obtener_documento_captcha_no_insiste_con_navegador(monkeypatch):
         def __init__(self):
             raise AssertionError("no debio abrirse el navegador tras un captcha")
 
+    monkeypatch.setattr(cl, "_cache_get", lambda clave: None)
+    monkeypatch.setattr(cl, "_cache_set", lambda clave, valor: None)
     monkeypatch.setattr(cl, "_descargar_pdf_httpx", captcha)
     monkeypatch.setattr(cl, "CendojBrowser", _NoBrowser)
     with pytest.raises(cl.ErrorCaptcha):
@@ -331,10 +333,13 @@ def test_obtener_documento_fallo_generico_explica_causas(monkeypatch):
         return None
 
     class _Br:
+        def reportar(self, ok, detalle=""): pass
         async def __aenter__(self): return self
         async def __aexit__(self, *a): return False
         async def resolver_pdf(self, url): return ("https://x/real", {})
 
+    monkeypatch.setattr(cl, "_cache_get", lambda clave: None)
+    monkeypatch.setattr(cl, "_cache_set", lambda clave, valor: None)
     monkeypatch.setattr(cl, "_descargar_pdf_httpx", nada)
     monkeypatch.setattr(cl, "CendojBrowser", _Br)
     with pytest.raises(RuntimeError) as ei:
@@ -348,6 +353,10 @@ def test_localizar_por_cita_reintenta_por_resolucion(monkeypatch):
     class _FakeBr:
         def __init__(self):
             self.busquedas = []
+            self.reportados = []
+
+        def reportar(self, ok, detalle=""):
+            self.reportados.append((ok, detalle))
 
         async def __aenter__(self): return self
         async def __aexit__(self, *a): return False
@@ -372,6 +381,7 @@ def test_localizar_por_cita_reintenta_por_resolucion(monkeypatch):
 
 def test_localizar_por_cita_sin_nada(monkeypatch):
     class _FakeBr:
+        def reportar(self, ok, detalle=""): pass
         async def __aenter__(self): return self
         async def __aexit__(self, *a): return False
         async def buscar(self, **k):
@@ -379,3 +389,75 @@ def test_localizar_por_cita_sin_nada(monkeypatch):
 
     monkeypatch.setattr(cl, "CendojBrowser", _FakeBr)
     assert asyncio.run(cl._localizar_por_cita("STS 99999/2099", "")) is None
+
+
+# ---------------------------------------------------------------------------
+# Rotacion de IPs integrada en la obtencion de documentos
+# ---------------------------------------------------------------------------
+
+def test_obtener_documento_captcha_con_rotacion_usa_pool(monkeypatch, tmp_path):
+    """Con rotacion activa, el captcha de la IP propia no corta la descarga:
+    se pasa al pool y el documento llega por una IP del usuario."""
+    from common import rotacion
+
+    pasos: list = []
+
+    async def captcha_directa(url, cookies=None):
+        pasos.append("directa")
+        raise cl.ErrorCaptcha("pdf-url", "captcha-url")
+
+    async def pool(url, headers=None, **k):
+        pasos.append(("pool", url))
+        return b"%PDF-1.7 simulado"
+
+    proxies = tmp_path / "proxies.txt"
+    proxies.write_text("127.0.0.1:8801:usuario:clave\n", encoding="utf-8")
+    monkeypatch.setenv("IURIS_ROTACION", "true")
+    monkeypatch.setenv("IURIS_PROXIES", str(proxies))
+    rotacion.reiniciar_para_tests()
+    try:
+        assert rotacion.activa()
+        monkeypatch.setattr(cl, "_cache_get", lambda clave: None)
+        monkeypatch.setattr(cl, "_cache_set", lambda clave, valor: None)
+        monkeypatch.setattr(cl, "_descargar_pdf_httpx", captcha_directa)
+        monkeypatch.setattr(cl.rotacion, "descargar_con_rotacion", pool)
+        monkeypatch.setattr(cl, "_texto_de_pdf", lambda b: "texto de prueba")
+
+        class _NoBrowser:
+            def __init__(self):
+                raise AssertionError("el pool ya trajo el PDF: no debio abrirse navegador")
+
+        monkeypatch.setattr(cl, "CendojBrowser", _NoBrowser)
+        data, texto = asyncio.run(cl.obtener_documento(FICHA))
+        assert data.startswith(b"%PDF")
+        assert texto == "texto de prueba"
+        assert pasos[0] == "directa"
+        assert pasos[1][0] == "pool"
+    finally:
+        monkeypatch.delenv("IURIS_ROTACION", raising=False)
+        monkeypatch.delenv("IURIS_PROXIES", raising=False)
+        rotacion.reiniciar_para_tests()
+
+
+def test_obtener_documento_captcha_sin_rotacion_mensaje_inmediato(monkeypatch):
+    """Sin rotacion: el captcha se informa en el momento, sin abrir navegador."""
+    from common import rotacion
+
+    rotacion.reiniciar_para_tests()
+    assert not rotacion.activa()
+
+    async def captcha(url, cookies=None):
+        raise cl.ErrorCaptcha("pdf-url", "captcha-url")
+
+    class _NoBrowser:
+        def __init__(self):
+            raise AssertionError("sin rotacion no debe insistirse con navegador")
+
+    ficha_otra = ("https://www.poderjudicial.es/search/AN/openDocument/"
+                  + "cd" * 16 + "/20251106")
+    monkeypatch.setattr(cl, "_cache_get", lambda clave: None)
+    monkeypatch.setattr(cl, "_cache_set", lambda clave, valor: None)
+    monkeypatch.setattr(cl, "_descargar_pdf_httpx", captcha)
+    monkeypatch.setattr(cl, "CendojBrowser", _NoBrowser)
+    with pytest.raises(cl.ErrorCaptcha):
+        asyncio.run(cl.obtener_documento(ficha_otra))
