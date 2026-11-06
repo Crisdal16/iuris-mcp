@@ -181,3 +181,62 @@ def test_sigla_provincia():
     assert sigla_provincia("A Coruña") == "C"          # con tilde/enye
     assert sigla_provincia("VA") == "VA"               # ya es sigla
     assert sigla_provincia("Narnia") is None
+
+
+# ---------------------------------------------------------------------------
+# Alias: nombre de provincia / comunidad en el ROJ (fix descargas 2026-11)
+# ---------------------------------------------------------------------------
+
+def test_roj_acepta_nombre_comunidad():
+    r = parse_roj("STSJ Murcia 1791/2025")
+    assert r is not None
+    assert (r.clase, r.organo, r.provincia, r.numero, r.anio) == ("S", "TSJ", "MU", "1791", 2025)
+    assert str(r) == "STSJ MU 1791/2025"      # se normaliza a la sigla oficial
+
+
+def test_roj_nombre_comunidad_ecli():
+    e = roj_a_ecli(parse_roj("STSJ Murcia 1791/2025"))
+    assert str(e) == "ECLI:ES:TSJMU:2025:1791"
+
+
+def test_roj_nombres_de_provincia():
+    assert parse_roj("SAP Valladolid 863/2026").provincia == "VA"
+    assert parse_roj("SAP Barcelona 123/2024").provincia == "B"
+    assert parse_roj("STS Tenerife 5/2024").provincia == "TF"   # TS la ignora en ECLI
+    assert parse_roj("AAP Sevilla 77/2023").provincia == "SE"
+
+
+def test_roj_comunidades_con_sede_unica():
+    assert parse_roj("STSJ Catalunya 10/2024").provincia == "B"
+    assert parse_roj("STSJ Euskadi 10/2024").provincia == "BI"
+    assert parse_roj("STSJ Madrid 10/2024").provincia == "M"
+
+
+def test_roj_nombre_desconocido_no_inventa_sigla():
+    assert parse_roj("STSJ Narnia 5/2024") is None
+    assert parse_roj("STSJ Atenas 5/2024") is None
+
+
+def test_sigla_roj_helper():
+    from common.cendoj_ids import sigla_roj
+    assert sigla_roj("Murcia") == "MU"
+    assert sigla_roj("cataluña") == "B"      # sin distinguir mayusculas ni tildes
+    assert sigla_roj("VA") == "VA"
+    assert sigla_roj("Narnia") is None
+    assert sigla_roj("") is None
+
+
+def test_citas_extrae_roj_con_nombre_comunidad():
+    from common.citas import extraer_citas
+    ts = extraer_citas("Conforme a la STSJ Murcia 1791/2025 y a la SAP VA 863/2026.")
+    rojs = [c.ref for c in ts if c.tipo == "cendoj"]
+    assert "STSJ MU 1791/2025" in rojs
+    assert "SAP VA 863/2026" in rojs
+
+
+def test_normalizar_cita_regresion_siglas():
+    # lo que ya funcionaba debe seguir funcionando
+    assert str(parse_roj("STSJ MU 1791/2025")) == "STSJ MU 1791/2025"
+    assert str(parse_roj("STS 1177/2014")) == "STS 1177/2014"
+    assert str(parse_roj("SAP VA 863/2026")) == "SAP VA 863/2026"
+    assert parse_roj("ATS 12/2020").numero == "12"

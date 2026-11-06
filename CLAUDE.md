@@ -5,9 +5,15 @@ Servidor MCP propio (Python, stdio) de fuentes jurídicas oficiales. Ver README.
 
 ## Entorno (Windows)
 
-- Python: `C:\Users\crist\iuris-mcp-venv\Scripts\python.exe` (venv fuera de OneDrive).
-  El `.venv/` de la carpeta es de Mac: no usarlo ni tocarlo.
+- Python: `C:\dev\iuris-mcp\.venv\Scripts\python.exe` (instalacion buena con rotacion
+  de IPs; el MCP de Claude apunta aqui). El venv antiguo `C:\Users\crist\iuris-mcp-venv`
+  y la copia de OneDrive estan obsoletos. El `.venv/` de esta carpeta en otros equipos
+  (Mac) no se usa: cada maquina crea el suyo.
 - NO usar `python3`: en esta máquina es el alias de la Microsoft Store y se cuelga.
+- Rotacion de IPs: activada solo con `IURIS_ROTACION=true` (ya fijada con setx) y
+  `proxies.txt` en la raiz. En la nube NO se usan proxies para CENDOJ (reglas abajo).
+- Contenedor/nube: si Chromium no arranca por desajuste pip/contenedor, fijar
+  `IURIS_CHROMIUM_PATH` al binario real (p. ej. `/opt/pw-browsers/chromium`).
 - Para imprimir tildes en consola: `python -X utf8`.
 - Parchear ficheros con Edit, no con heredocs de bash: el shell se come las
   barras invertidas (`\\` → `\`) y rompe regex y rutas.
@@ -31,6 +37,11 @@ Servidor MCP propio (Python, stdio) de fuentes jurídicas oficiales. Ver README.
 
 ## Trampas conocidas de las fuentes
 
+- CENDOJ `accessToPDF` redirige a `captcha.jsp` («Control · Descargas masivas») cuando
+  la IP esta senalada (nube/contenedor compartido, o PC tras un pico de descargas).
+  `ErrorCaptcha` (cendoj_live) lo detecta por URL/HTML y devuelve el enlace oficial del
+  PDF para humano en el bucle; no reintentar en bucle, no evadir. En el PC del usuario
+  la rotacion de IPs es la que evita llegar a ese control.
 - BOE `/texto/bloque/<id>` trae TODAS las redacciones; la primera es la original.
   Usar `boe.elegir_version` (bug real corregido en v0.2.0; test de regresión en
   tests/test_boe.py).

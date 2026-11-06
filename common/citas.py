@@ -42,9 +42,12 @@ _RE_ASUNTO = re.compile(r"\b(?:[Aa]sunto\s+)?([CT])\s*[-‑]\s*(\d{1,4})\s*/\s*(
 _RE_CELEX_JUR = re.compile(r"^6\d{4}[A-Z]{2}\d{4}$")
 _RE_CELEX_NORMA = re.compile(r"^3\d{4}[A-Z]\d{3,4}$")
 # Resoluciones con ROJ / cita breve: STS 1177/2014, SAP VA 863/2026, STC 31/2010, ATS 12/2020
+# La provincia admite tambien el nombre completo («STSJ Murcia 1791/2025»); el
+# traductor a sigla vive en common.cendoj_ids.parse_roj, que revalida todo.
 _RE_ROJ = re.compile(
     r"\b([SA](?:TSJ|TS|AN|TC|AP|JPII|JPI|JI|JM|JSO|JCA|JP|JVM|JMEN|JVP))"
-    r"(?:\s+([A-Z]{1,3}))?\s+(\d{1,6})\s*/\s*(\d{4})\b"
+    r"(?:\s+([A-ZÁÉÍÓÚÜÑ]{1,15}))?\s+(\d{1,6})\s*/\s*(\d{4})\b",
+    re.IGNORECASE,
 )
 
 # Normas que pueden acompanar a un articulo. El orden importa: lo mas largo primero.

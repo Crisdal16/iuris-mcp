@@ -25,7 +25,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from .organos import nombre_organo
+from .organos import _norm, nombre_organo, sigla_provincia
 
 # ---------------------------------------------------------------------------
 # Tipos de resolucion en el ROJ: la inicial S = Sentencia, A = Auto.
@@ -62,13 +62,43 @@ _RE_ECLI = re.compile(
 )
 
 # "STS 1177/2014" | "SAP VA 863/2026" | "AAP B 9672/2019" | "STC 31/2010"
+# La provincia admite el nombre completo («STSJ Murcia 1791/2025») y se traduce
+# a sigla con la tabla de common.organos (Murcia -> MU, Valladolid -> VA...).
 _RE_ROJ = re.compile(
     r"^(?P<clase>[SA])(?P<organo>TSJ|TS|AN|TC|AP|JPII|JPI|JI|JM|JSO|JCA|JP|"
     r"JVM|JMEN|JVP|TMT|TMC)"
-    r"(?:\s+(?P<provincia>[A-Z]{1,3}))?"
+    r"(?:\s+(?P<provincia>[A-Z]{1,15}))?"
     r"\s+(?P<numero>\d+)\s*/\s*(?P<anio>\d{4})$",
     re.IGNORECASE,
 )
+
+# Nombre de CCAA -> sigla de la SEDE del TSJ, para citas escritas con el nombre
+# («STSJ Murcia 1791/2025»). Ojo: las salas de un TSJ se reparten por varias
+# provincias (Andalucia, Canarias...), asi que la sigla de sede es lo mejor
+# estimado; si el ROJ real lleva otra provincia, la busqueda por ROJ no dara
+# nada y _localizar_por_cita reintentara por nº de resolucion.
+_CCAA_SEDE: dict[str, str] = {
+    "ANDALUCIA": "GR", "ARAGON": "Z", "BALEARS": "IB", "BALEARES": "IB",
+    "CANTABRIA": "S", "CASTILLA Y LEON": "BU", "CATALUNA": "B",
+    "CATALUNYA": "B", "EUSKADI": "BI", "EXTREMADURA": "CC", "GALICIA": "C",
+    "MADRID": "M", "MURCIA": "MU", "NAVARRA": "NA", "PAIS VASCO": "BI",
+    "RIOJA": "LO", "VALENCIANA": "V",
+}
+
+
+def sigla_roj(nombre: str) -> str | None:
+    """'Murcia' -> 'MU'; 'Valladolid' -> 'VA'; 'VA' -> 'VA'; 'Catalunya' -> 'B'.
+
+    None si el nombre no se reconoce (mejor que inventar una sigla). Canarias
+    NO esta aqui: su TSJ tiene dos sedes (TF y GC) y la sigla depende de la sala.
+    """
+    n = _norm(nombre)
+    if not n:
+        return None
+    s = sigla_provincia(n)
+    if s:
+        return s
+    return _CCAA_SEDE.get(n)
 
 _RE_ID_CENDOJ = re.compile(r"^\d{20}$")
 
@@ -144,15 +174,24 @@ def parse_ecli(cita: str) -> Ecli | None:
 
 
 def parse_roj(cita: str) -> Roj | None:
-    """'SAP VA 863/2026' -> Roj(clase='S', organo='AP', provincia='VA', ...)."""
+    """'SAP VA 863/2026' -> Roj(clase='S', organo='AP', provincia='VA', ...).
+
+    Acepta tambien el nombre completo de provincia o comunidad
+    ('STSJ Murcia 1791/2025' -> provincia='MU'). Si el nombre no se reconoce,
+    devuelve None: mejor no reconocer la cita que buscar con una sigla inventada.
+    """
     m = _RE_ROJ.match(" ".join(cita.strip().split()))
     if not m:
         return None
     prov = m.group("provincia")
+    if prov:
+        prov = sigla_roj(prov)
+        if prov is None:
+            return None
     return Roj(
         clase=m.group("clase").upper(),
         organo=m.group("organo").upper(),
-        provincia=prov.upper() if prov else None,
+        provincia=prov,
         numero=m.group("numero"),
         anio=int(m.group("anio")),
     )

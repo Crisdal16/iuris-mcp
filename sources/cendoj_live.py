@@ -36,9 +36,11 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 from typing import Any
 
 from common.cendoj_ids import Ecli, Roj, normalizar_cita, roj_a_ecli
+from common.http import describir_error
 from common.remoto import AVISO_CENDOJ, cendoj_bloqueado
 from common.texto import dir_destino, norm as _norm, parrafos, parrafos_con, slug as _slug, truncar
 
@@ -52,6 +54,60 @@ _HEADERS = {"User-Agent": _UA, "Accept-Language": "es-ES,es;q=0.9"}
 _RE_FICHA = re.compile(r"openDocument/(?P<ref>[0-9a-f]{32})/(?P<opt>\d{8})", re.IGNORECASE)
 _PDF_DIRECTO = (SITE + "/search/contenidos.action?action=accessToPDF&publicinterface=true"
                 "&tab=AN&databasematch=AN&reference={ref}&encode=true&optimize={opt}")
+
+# ---------------------------------------------------------------------------
+# Control antidescargas del CENDOJ («Control · Descargas masivas»): cuando la
+# IP esta senalada, accessToPDF NO devuelve el PDF sino una redireccion a
+# captcha.jsp con un formulario (frmauthenticatecaptcha). Reglas del proyecto
+# (CLAUDE.md): el captcha no se resuelve ni se evade; se detecta, se explica y
+# se pasa a humano en el bucle con el enlace oficial.
+# ---------------------------------------------------------------------------
+_RE_CAPTCHA = re.compile(r"captcha\.jsp|Descargas masivas|frmauthenticatecaptcha", re.IGNORECASE)
+
+
+class ErrorCaptcha(RuntimeError):
+    """CENDOJ pide captcha al descargar el PDF: humano en el bucle.
+
+    Subclase de RuntimeError para que los llamantes que ya capturan RuntimeError
+    (leer_sentencia, descargar_sentencia, verificar_escrito) la muestren tal cual.
+    """
+
+    def __init__(self, url_pdf: str, url_captcha: str = ""):
+        self.url_pdf = url_pdf
+        self.url_captcha = url_captcha
+        super().__init__(
+            "pide captcha al descargar el PDF (control de «Descargas masivas»): es una "
+            "proteccion de su web, no un fallo de iuris. Abre este enlace oficial en tu "
+            "navegador, resuelve el captcha y te dejara bajar el PDF: "
+            f"{url_pdf}. Alternativa: reintenta mas tarde (el control es temporal)."
+        )
+
+
+def _es_captcha(url: str, contenido: bytes | str = b"") -> bool:
+    """True si la respuesta es la pagina del captcha, por URL o por contenido."""
+    if "captcha.jsp" in (url or ""):
+        return True
+    trozo = contenido[:4000] if isinstance(contenido, (bytes, bytearray)) else (contenido or "")[:4000]
+    texto = trozo.decode("utf-8", "ignore") if isinstance(trozo, (bytes, bytearray)) else trozo
+    return bool(_RE_CAPTCHA.search(texto))
+
+
+def _aviso(mensaje: str) -> None:
+    """Diagnostico por stderr: visible en los logs del servidor MCP sin ensuciar
+    la salida de las tools (stdio escribe el protocolo por stdout)."""
+    print(f"iuris.cendoj: {mensaje}", file=sys.stderr)
+
+
+def _ejecutable_chromium() -> str | None:
+    """Binario Chromium alternativo (IURIS_CHROMIUM_PATH), para contenedores.
+
+    En entornos en la nube pip puede instalar una version de Playwright cuyo
+    build de Chromium no esta en el contenedor (Executable doesn't exist at
+    /opt/pw-browsers/chromium_headless_shell-...). Apuntando IURIS_CHROMIUM_PATH
+    al binario real (p. ej. /opt/pw-browsers/chromium) launch() funciona igual.
+    En un PC normal no se define y se usa el de playwright install.
+    """
+    return os.getenv("IURIS_CHROMIUM_PATH", "").strip() or None
 
 # --- Cache (diskcache, ya es dependencia del proyecto) -----------------------
 try:
@@ -270,16 +326,27 @@ def secciones(texto: str) -> dict[str, str]:
 # ---------------------------------------------------------------------------
 
 async def _descargar_pdf_httpx(url_pdf: str, cookies: dict | None = None) -> bytes | None:
+    """Descarga directa con httpx. Devuelve None si no trajo un PDF (el llamante
+    decide el fallback) y levanta ErrorCaptcha si el CENDOJ redirige a captcha.jsp.
+    Los fallos de red/TLS se registran en stderr en vez de tragarse en silencio.
+    """
     import httpx
 
     try:
         async with httpx.AsyncClient(headers=_HEADERS, cookies=cookies or {},
                                      follow_redirects=True, timeout=30.0) as cli:
             r = await cli.get(url_pdf)
-        if r.status_code == 200 and r.content[:4] == b"%PDF":
-            return r.content
-    except Exception:
-        pass
+    except Exception as e:
+        # Antes esto era 'except Exception: pass' y ni el TLS del proxy de la nube
+        # se veia. describir_error lo vuelve legible sin romper el fallback.
+        _aviso(f"descarga directa de {url_pdf}: {describir_error(e)}")
+        return None
+    if r.status_code == 200 and r.content[:4] == b"%PDF":
+        return r.content
+    if _es_captcha(str(r.url), r.content):
+        raise ErrorCaptcha(url_pdf, str(r.url))
+    _aviso(f"descarga directa de {url_pdf}: HTTP {r.status_code} "
+           f"({r.headers.get('content-type', '?')}) sin PDF")
     return None
 
 
@@ -318,13 +385,15 @@ class CendojBrowser:
         self._pw = await async_playwright().start()
         try:
             self.browser = await self._pw.chromium.launch(
-                headless=self.headless, args=["--no-sandbox", "--disable-web-security"]
+                headless=self.headless, executable_path=_ejecutable_chromium(),
+                args=["--no-sandbox", "--disable-web-security"]
             )
         except Exception as e:
             await self._pw.stop()
             raise RuntimeError(
                 "No se pudo lanzar Chromium. Ejecuta una vez: python -m playwright install chromium"
-                f" (detalle: {e})"
+                " (en contenedores con un build distinto, apunta IURIS_CHROMIUM_PATH al"
+                f" binario chromium disponible; detalle: {e})"
             ) from e
         self.ctx = await self.browser.new_context(
             viewport={"width": 1280, "height": 1000}, user_agent=_UA, locale="es-ES"
@@ -663,6 +732,8 @@ class CendojBrowser:
         try:
             await tp.goto(url_ficha, timeout=20000)
             await tp.wait_for_load_state("networkidle")
+            if _es_captcha(tp.url, await tp.content()):
+                raise ErrorCaptcha(url_pdf_directa(url_ficha) or url_ficha, tp.url)
             el = tp.locator('object[data*="accessToPDF"], a[href*="accessToPDF"]')
             real = None
             if await el.count():
@@ -681,7 +752,12 @@ class CendojBrowser:
 
 async def obtener_documento(url_ficha: str) -> tuple[bytes | None, str]:
     """Devuelve (pdf_bytes, texto). Primero cache; luego httpx directo; por
-    ultimo navegador. pdf_bytes puede ser None si solo habia texto en cache."""
+    ultimo navegador. pdf_bytes puede ser None si solo habia texto en cache.
+
+    Si el CENDOJ responde con el captcha de descargas masivas, se corta aqui
+    (ErrorCaptcha): el fallback del navegador chocaria con el mismo control y
+    el mensaje honesto llega antes.
+    """
     clave = _clave_doc(url_ficha)
     texto = _cache_get("txt:" + clave)
     data = _cache_get("pdf:" + clave)
@@ -690,15 +766,20 @@ async def obtener_documento(url_ficha: str) -> tuple[bytes | None, str]:
     if not data:
         directa = url_pdf_directa(url_ficha)
         if directa:
-            data = await _descargar_pdf_httpx(directa)
+            try:
+                data = await _descargar_pdf_httpx(directa)
+            except ErrorCaptcha:
+                raise
         if not data:
             async with CendojBrowser() as br:
                 real, cookies = await br.resolver_pdf(url_ficha)
                 data = await _descargar_pdf_httpx(real, cookies)
         if not data:
             raise RuntimeError(
-                f"No se pudo descargar el PDF de {url_ficha}. Comprueba la URL "
-                "(debe ser la de buscar_sentencias) o reintenta mas tarde."
+                f"No se pudo descargar el PDF de {url_ficha}. Causas habituales: el CENDOJ "
+                "pide captcha (control de descargas masivas; ver los avisos 'iuris.cendoj' "
+                "en el log), bloqueo temporal de la IP, o la URL no es una ficha "
+                "openDocument del CENDOJ. Reintenta mas tarde o abre el enlace en tu navegador."
             )
         _cache_set("pdf:" + clave, data)
     if not texto:
@@ -708,7 +789,13 @@ async def obtener_documento(url_ficha: str) -> tuple[bytes | None, str]:
 
 
 async def _localizar_por_cita(roj: str, ecli: str) -> dict | None:
-    """Busca por ROJ/ECLI en el CENDOJ y devuelve la primera tarjeta (o None)."""
+    """Busca por ROJ/ECLI en el CENDOJ y devuelve la primera tarjeta (o None).
+
+    Si el ROJ/ECLI no da nada, reintenta por nº de resolucion: «STS 4452/2025»
+    puede ser el numero de sentencia (con otro ROJ) o un ROJ cuya sigla de
+    provincia no coincide con la que creemos. La tarjeta vuelve marcada con
+    'aviso_localizacion' para que el usuario compruebe que es la suya.
+    """
     cita = (roj or ecli or "").strip()
     obj = normalizar_cita(cita)
     roj_val = ecli_val = ""
@@ -721,8 +808,22 @@ async def _localizar_por_cita(roj: str, ecli: str) -> dict | None:
     else:
         roj_val, ecli_val = roj.strip(), ecli.strip()
     async with CendojBrowser() as br:
-        res = await br.buscar(roj=roj_val, ecli=ecli_val)
-    return res["resultados"][0] if res["resultados"] else None
+        res = (await br.buscar(roj=roj_val, ecli=ecli_val)
+               if (roj_val or ecli_val) else {"resultados": []})
+        if res["resultados"]:
+            return res["resultados"][0]
+        m = re.search(r"(\d{1,6})/(\d{4})$", cita)
+        if m:
+            res2 = await br.buscar(n_resolucion=f"{m.group(1)}/{m.group(2)}")
+            if res2["resultados"]:
+                tarjeta = dict(res2["resultados"][0])
+                tarjeta["aviso_localizacion"] = (
+                    f"Sin resultados para «{cita}» como ROJ/ECLI; localizada por nº de "
+                    f"resolucion {m.group(1)}/{m.group(2)} (ROJ real: "
+                    f"{tarjeta.get('roj') or '?'}). Comprueba que es la resolucion "
+                    "que buscabas.")
+                return tarjeta
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -822,9 +923,11 @@ async def leer_sentencia(
     if cendoj_bloqueado():
         return AVISO_CENDOJ
     meta: dict = {}
+    aviso_loc = ""
     try:
         if not url and (roj or ecli):
             meta = await _localizar_por_cita(roj, ecli) or {}
+            aviso_loc = meta.pop("aviso_localizacion", "")
             url = meta.get("url") or ""
             if not url:
                 return f"No encuentro «{roj or ecli}» en el CENDOJ. Revisa la cita."
@@ -873,6 +976,8 @@ async def leer_sentencia(
         cuerpo = texto
 
     partes = [_cabecera(meta)]
+    if aviso_loc:
+        partes.append("AVISO: " + aviso_loc)
     if etiqueta_parte:
         partes.append(etiqueta_parte)
     if guardados:
@@ -895,9 +1000,11 @@ async def descargar_sentencia(
     if cendoj_bloqueado():
         return AVISO_CENDOJ
     meta: dict = {}
+    aviso_loc = ""
     try:
         if not url and (roj or ecli):
             meta = await _localizar_por_cita(roj, ecli) or {}
+            aviso_loc = meta.pop("aviso_localizacion", "")
             url = meta.get("url") or ""
             if not url:
                 return f"No encuentro «{roj or ecli}» en el CENDOJ. Revisa la cita."
@@ -918,11 +1025,14 @@ async def descargar_sentencia(
     guardados = _guardar(meta, url, texto, data, quiere_pdf, quiere_md, ruta)
     secs = secciones(texto)
     resumen_secs = ", ".join(k for k in secs if k != "todo") or "sin secciones reconocidas"
-    return "\n".join([
-        _cabecera(meta),
+    lineas = [_cabecera(meta)]
+    if aviso_loc:
+        lineas.append("AVISO: " + aviso_loc)
+    lineas += [
         f"Paginas/caracteres: {len(texto)} caracteres · secciones: {resumen_secs}",
         "Guardado en:\n  " + "\n  ".join(guardados),
-    ])
+    ]
+    return "\n".join(lineas)
 
 
 # ---------------------------------------------------------------------------

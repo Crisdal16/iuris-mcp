@@ -5,3 +5,8 @@ __pycache__/
 .cache/
 descargas/
 *.egg-info/
+
+# Pool de proxies del usuario (credenciales Webshare): NUNCA al repo
+proxies.txt
+.proxies/
+*.proxy

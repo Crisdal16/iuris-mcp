@@ -203,3 +203,179 @@ def test_parrafos_con_fallback_a_alguna():
 def test_parrafos_con_sin_claves():
     assert parrafos_con(SENTENCIA, "  ") == ([], "ninguna")
     assert parrafos_con(SENTENCIA, "zzz_nada") == ([], "ninguna")
+
+
+# ---------------------------------------------------------------------------
+# Captcha «Descargas masivas» y diagnóstico de descarga (fix 2026-11)
+# ---------------------------------------------------------------------------
+
+import asyncio
+
+import pytest
+
+import sources.cendoj_live as cl
+
+CAPTCHA_HTML = (
+    '<html><head><title>CENDOJ : Buscador del Sistema de Jurisprudencia</title></head>'
+    '<body><span class="area">Control </span> <span class="restring">Descargas masivas</span>'
+    '<h2>Por favor, introduzca el texto que muestra la siguiente imagen:</h2>'
+    '<form action="contenidos.action" name="frmauthenticatecaptcha" method="POST">'
+    '<input type="hidden" name="action" value="captcha"/>'
+)
+
+FICHA = ("https://www.poderjudicial.es/search/AN/openDocument/"
+         "53db339e63caa793a0a8778d75e36f0d/20251024")
+
+
+def test_es_captcha_por_url():
+    assert cl._es_captcha("https://www.poderjudicial.es/search/captcha.jsp"
+                       "?prevaction=accessToPDF&publicinterface=true&tab=AN")
+
+
+def test_es_captcha_por_contenido():
+    assert cl._es_captcha("https://www.poderjudicial.es/search/contenidos.action", CAPTCHA_HTML)
+    assert cl._es_captcha("https://x", b"<html>frmauthenticatecaptcha</html>")
+
+
+def test_no_es_captcha():
+    assert not cl._es_captcha("https://www.poderjudicial.es/search/contenidos.action", "%PDF-1.7")
+    assert not cl._es_captcha("https://www.poderjudicial.es/search/indexAN.jsp", "<html>hola</html>")
+
+
+def test_error_captcha_es_runtimeerror_con_enlace_oficial():
+    e = cl.ErrorCaptcha("https://www.poderjudicial.es/search/contenidos.action"
+                        "?action=accessToPDF&reference=53db", "https://x/captcha.jsp")
+    assert isinstance(e, RuntimeError)
+    assert "captcha" in str(e).lower()
+    assert "accessToPDF" in str(e)          # trae el enlace oficial del PDF
+    assert e.url_pdf.endswith("reference=53db")
+
+
+def test_ejecutable_chromium_desde_entorno(monkeypatch):
+    monkeypatch.delenv("IURIS_CHROMIUM_PATH", raising=False)
+    assert _es_none(cl._ejecutable_chromium())
+    monkeypatch.setenv("IURIS_CHROMIUM_PATH", "/opt/pw-browsers/chromium")
+    assert cl._ejecutable_chromium() == "/opt/pw-browsers/chromium"
+    monkeypatch.setenv("IURIS_CHROMIUM_PATH", "   ")
+    assert _es_none(cl._ejecutable_chromium())
+
+
+def _es_none(x):
+    return x is None
+
+
+def test_descargar_pdf_httpx_captcha(monkeypatch, capsys):
+    """Si el servidor devuelve el HTML del captcha, levanta ErrorCaptcha."""
+
+    class _Resp:
+        status_code = 200
+        headers = {"content-type": "text/html"}
+        url = "https://www.poderjudicial.es/search/captcha.jsp?prevaction=accessToPDF"
+        content = CAPTCHA_HTML.encode("utf-8")
+
+    class _Cli:
+        def __init__(self, *a, **k): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def get(self, url): return _Resp()
+
+    class _Httpx:
+        AsyncClient = _Cli
+
+    monkeypatch.setitem(__import__("sys").modules, "httpx", _Httpx)
+    with pytest.raises(cl.ErrorCaptcha):
+        asyncio.run(cl._descargar_pdf_httpx("https://x/contenidos.action"))
+    assert "captcha.jsp" in _Resp.url
+
+
+def test_descargar_pdf_httpx_red_visible(monkeypatch, capsys):
+    """Un fallo de red/TLS ya NO se traga en silencio: avisa por stderr."""
+
+    import httpx as _httpx_real
+
+    class _Cli:
+        def __init__(self, *a, **k): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def get(self, url):
+            raise _httpx_real.ConnectError("tls: certificado del proxy no confia")
+
+    class _Httpx:
+        AsyncClient = _Cli
+
+    monkeypatch.setitem(__import__("sys").modules, "httpx", _Httpx)
+    assert asyncio.run(cl._descargar_pdf_httpx("https://x")) is None
+    salida = capsys.readouterr().err
+    assert "iuris.cendoj" in salida
+    assert "ConnectError" in salida or "sin conexion" in salida
+
+
+def test_obtener_documento_captcha_no_insiste_con_navegador(monkeypatch):
+    """Con captcha se corta en la descarga directa: el navegador chocaria igual."""
+
+    async def captcha(url, cookies=None):
+        raise cl.ErrorCaptcha("pdf-url", "captcha-url")
+
+    class _NoBrowser:
+        def __init__(self):
+            raise AssertionError("no debio abrirse el navegador tras un captcha")
+
+    monkeypatch.setattr(cl, "_descargar_pdf_httpx", captcha)
+    monkeypatch.setattr(cl, "CendojBrowser", _NoBrowser)
+    with pytest.raises(cl.ErrorCaptcha):
+        asyncio.run(cl.obtener_documento(FICHA))
+
+
+def test_obtener_documento_fallo_generico_explica_causas(monkeypatch):
+    async def nada(url, cookies=None):
+        return None
+
+    class _Br:
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def resolver_pdf(self, url): return ("https://x/real", {})
+
+    monkeypatch.setattr(cl, "_descargar_pdf_httpx", nada)
+    monkeypatch.setattr(cl, "CendojBrowser", _Br)
+    with pytest.raises(RuntimeError) as ei:
+        asyncio.run(cl.obtener_documento(FICHA))
+    assert "captcha" in str(ei.value).lower()
+
+
+def test_localizar_por_cita_reintenta_por_resolucion(monkeypatch):
+    """«STS 4452/2025» sin ROJ valido: reintenta como nº de resolucion y avisa."""
+
+    class _FakeBr:
+        def __init__(self):
+            self.busquedas = []
+
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+
+        async def buscar(self, **k):
+            self.busquedas.append(k)
+            if k.get("roj") or k.get("ecli"):
+                return {"total": 0, "resultados": []}
+            return {"total": 1, "resultados": [{
+                "roj": "STSJ MU 1791/2025", "ecli": "ECLI:ES:TSJMU:2025:1791",
+                "url": "https://www.poderjudicial.es/search/AN/openDocument/"
+                       "ab" * 16 + "/20251024"}]}
+
+    fake = _FakeBr()
+    monkeypatch.setattr(cl, "CendojBrowser", lambda: fake)
+    tarjeta = asyncio.run(cl._localizar_por_cita("STS 4452/2025", ""))
+    assert tarjeta["roj"] == "STSJ MU 1791/2025"
+    assert "aviso_localizacion" in tarjeta
+    assert "4452/2025" in tarjeta["aviso_localizacion"]
+    assert any(k.get("n_resolucion") == "4452/2025" for k in fake.busquedas)
+
+
+def test_localizar_por_cita_sin_nada(monkeypatch):
+    class _FakeBr:
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def buscar(self, **k):
+            return {"total": 0, "resultados": []}
+
+    monkeypatch.setattr(cl, "CendojBrowser", _FakeBr)
+    assert asyncio.run(cl._localizar_por_cita("STS 99999/2099", "")) is None
