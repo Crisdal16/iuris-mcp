@@ -56,6 +56,11 @@ _RE_FICHA = re.compile(r"openDocument/(?P<ref>[0-9a-f]{32})/(?P<opt>\d{8})", re.
 _PDF_DIRECTO = (SITE + "/search/contenidos.action?action=accessToPDF&publicinterface=true"
                 "&tab=AN&databasematch=AN&reference={ref}&encode=true&optimize={opt}")
 
+# Espera maxima a que aparezcan las tarjetas de resultados tras pulsar Buscar.
+# El CENDOJ a veces tarda mas de 30 s en devolver el listado en entornos con
+# proxy (medido en la nube: 15-33 s para 'responsabilidad civil').
+_ESPERA_BUSQUEDA_S = 60
+
 # ---------------------------------------------------------------------------
 # Control antidescargas del CENDOJ («Control · Descargas masivas»): cuando la
 # IP esta senalada, accessToPDF NO devuelve el PDF sino una redireccion a
@@ -507,7 +512,7 @@ class CendojBrowser:
                 avisos.append(f"localizacion no aplicada: {', '.join(faltan)}")
 
         await page.click("button#srcjur_search")
-        if not await self._esperar_resultados(30000):
+        if not await self._esperar_resultados(_ESPERA_BUSQUEDA_S * 1000):
             return {"total": 0, "resultados": [], "avisos": avisos}
 
         if por_pagina > 10:
